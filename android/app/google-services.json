@@ -1,0 +1,48 @@
+{
+  "project_info": {
+    "project_number": "520942545382",
+    "project_id": "bizzuser",
+    "storage_bucket": "bizzuser.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:520942545382:android:7a79bc2d4453fce6f38e27",
+        "android_client_info": {
+          "package_name": "com.bizzdriver"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDjomIfr2D1RAeJKLbRCo641TLpq2SydKo"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:520942545382:android:9b10c5dab67d77f6f38e27",
+        "android_client_info": {
+          "package_name": "com.bizzuser"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDjomIfr2D1RAeJKLbRCo641TLpq2SydKo"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
