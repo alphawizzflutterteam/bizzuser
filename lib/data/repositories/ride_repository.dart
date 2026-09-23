@@ -201,18 +201,19 @@ class RideRepository extends BaseRepository {
     String reason = '',
   }) async {
     final body = <String, dynamic>{};
-    final id = reasonId.trim();
+    final reasonKey = reasonId.trim();
     // Offline catalog ids (e.g. "plans") are not server ids – the backend
     // rejects them, so send the label instead (matched case-insensitively).
-    final isServerId = RegExp(r'^[a-fA-F0-9]{24}$').hasMatch(id);
+    final isServerId = RegExp(r'^[a-fA-F0-9]{24}$').hasMatch(reasonKey);
     if (isServerId) {
-      body['reasonId'] = id;
+      body['reasonId'] = reasonKey;
     } else if (reason.trim().isNotEmpty) {
       body['reason'] = reason.trim();
-    } else if (id.isNotEmpty) {
-      body['reasonId'] = id;
+    } else if (reasonKey.isNotEmpty) {
+      body['reasonId'] = reasonKey;
     }
-    final json = await apiService.postJson(ApiConstants.rideCancel(id), body);
+    final json =
+        await apiService.postJson(ApiConstants.rideCancel(id.trim()), body);
     return RideBooking.fromJson(json);
   }
 
