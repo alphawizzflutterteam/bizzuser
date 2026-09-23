@@ -410,6 +410,27 @@ class HomeController extends GetxController with PageLoadingMixin {
     );
   }
 
+  /// Edit pickup / drop from the vehicle-select screen: open the picker and,
+  /// when a location changed, re-quote vehicles and fares for the new route.
+  Future<void> editTripLocation(LocationPickTarget target) async {
+    final pickupBefore = pickup.value;
+    final dropBefore = drop.value;
+    await Get.toNamed(
+      AppRoutes.addressForm,
+      arguments: LocationPickArgs(target),
+    );
+    final changed =
+        !identical(pickup.value, pickupBefore) ||
+        !identical(drop.value, dropBefore);
+    if (!changed || !_ensureTripLocations()) return;
+    appliedCoupon.value = null;
+    couponCode.value = '';
+    estimatedDiscount.value = 0;
+    rideVehicleOptions.clear();
+    estimateDistance.value = '';
+    _loadRideVehicles();
+  }
+
   void applyPickedLocation(LocationPickTarget target, RideLocation location) {
     if (target == LocationPickTarget.pickup) {
       usingCurrentPickup.value = false;
@@ -1325,6 +1346,11 @@ class HomeController extends GetxController with PageLoadingMixin {
     searchProgress.value = '';
     _userCancellingRideId = '';
     if (keepQuote) return;
+    // Next booking starts fresh: the rider must choose a new destination.
+    drop.value = const RideLocation(title: '', subtitle: '');
+    if (!usingCurrentPickup.value) clearPickup();
+    rideVehicleOptions.clear();
+    estimateDistance.value = '';
     appliedCoupon.value = null;
     couponCode.value = '';
     estimatedDiscount.value = 0;
