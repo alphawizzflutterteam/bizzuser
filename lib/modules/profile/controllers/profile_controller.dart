@@ -19,6 +19,7 @@ import '../widgets/photo_source_sheet.dart';
 class ProfileController extends GetxController with PageLoadingMixin {
   final user = AuthUser.placeholder().obs;
   final photoPath = RxnString();
+  final isUploadingPhoto = false.obs;
   final ImagePicker _picker = ImagePicker();
 
   /// Real profile values only – no demo fallbacks.
@@ -155,13 +156,34 @@ class ProfileController extends GetxController with PageLoadingMixin {
     if (Get.isBottomSheetOpen == true) {
       Get.back();
     }
+    XFile? file;
     try {
-      final file = await _picker.pickImage(source: source, imageQuality: 85);
-      if (file == null) return;
-      photoPath.value = file.path;
-      AppUtils.showSuccess(AppStrings.photoUpdated);
+      file = await _picker.pickImage(
+        source: source,
+        imageQuality: 80,
+        maxWidth: 1080,
+      );
     } catch (_) {
       AppUtils.showError(AppStrings.photoPickFailed);
+      return;
+    }
+    if (file == null || isUploadingPhoto.value) return;
+    // Show it right away; saved on the server so drivers see it too.
+    photoPath.value = file.path;
+    if (!Get.isRegistered<ProfileRepository>()) return;
+    isUploadingPhoto.value = true;
+    try {
+      final path = file.path;
+      final result = await runApi(
+        () => Get.find<ProfileRepository>().uploadAvatar(path),
+      );
+      if (result == null) return;
+      applyUser(result.user);
+      AppUtils.showSuccess(AppStrings.photoUpdated);
+    } finally {
+      // Server photo from now on; a failed upload falls back to the old one.
+      photoPath.value = null;
+      isUploadingPhoto.value = false;
     }
   }
 

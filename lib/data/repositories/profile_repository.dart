@@ -1,3 +1,7 @@
+import 'dart:io';
+
+import 'package:get/get.dart';
+
 import '../../core/constants/api_constants.dart';
 import '../../core/constants/app_strings.dart';
 import '../../core/exceptions/api_exception.dart';
@@ -40,6 +44,24 @@ class ProfileRepository extends BaseRepository {
 
     final json = await apiService.putJson(ApiConstants.profile, body);
     return _save(_parse(json, fallback: AppStrings.profileUpdated));
+  }
+
+  /// Uploads a new profile photo (multipart `avatar`); the server returns the
+  /// updated profile with the stored photo URL.
+  Future<ProfileResult> uploadAvatar(String filePath) async {
+    final name = filePath.replaceAll(r'\', '/').split('/').last;
+    final lower = name.toLowerCase();
+    final type = lower.endsWith('.png')
+        ? 'image/png'
+        : lower.endsWith('.webp')
+        ? 'image/webp'
+        : 'image/jpeg';
+    final bytes = await File(filePath).readAsBytes();
+    final form = FormData({
+      'avatar': MultipartFile(bytes, filename: name, contentType: type),
+    });
+    final json = await apiService.putForm(ApiConstants.profile, form);
+    return _save(_parse(json, fallback: AppStrings.photoUpdated));
   }
 
   Future<ProfileResult> updateEmergencyContacts(

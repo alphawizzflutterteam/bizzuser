@@ -76,6 +76,10 @@ class ApiService extends GetConnect {
     return _request('POST', path, body: body);
   }
 
+  Future<Map<String, dynamic>> putForm(String path, FormData body) {
+    return _request('PUT', path, body: body);
+  }
+
   Future<Map<String, dynamic>> deleteJson(String path) {
     return _request('DELETE', path);
   }
