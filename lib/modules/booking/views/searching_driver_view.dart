@@ -30,7 +30,7 @@ class SearchingDriverView extends GetView<SearchingDriverController> {
               children: [
                 const Padding(
                   padding: EdgeInsets.fromLTRB(20, 8, 20, 0),
-                  child: PillHeader(title: AppStrings.searchingDriver),
+                  child: PillHeader(title: AppStrings.searchingForDriver),
                 ),
                 Expanded(
                   child: GestureDetector(

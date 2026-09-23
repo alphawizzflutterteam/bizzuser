@@ -114,16 +114,52 @@ class RideBooking {
 
   bool get showOtp {
     if (otp.isEmpty) return false;
-    if (normalizedStatus.isEmpty) return status == RideBookingStatus.ongoing;
-    return isAssigned || isSearching;
+    final value = normalizedStatus;
+    return value == 'accepted' || value == 'arrived';
+  }
+
+  String get liveStatusUiLabel {
+    switch (normalizedStatus) {
+      case 'searching':
+        return AppStrings.searchingForDriver;
+      case 'accepted':
+        return AppStrings.driverOnTheWayLabel;
+      case 'arrived':
+        return AppStrings.driverHasArrived;
+      case 'ongoing':
+        return AppStrings.tripInProgress;
+      case 'completed':
+        return AppStrings.rideStatusCompleted;
+      case 'cancelled':
+        return AppStrings.rideStatusCancelled;
+      default:
+        if (statusLabel.trim().isNotEmpty) return statusLabel;
+        if (isCompleted) return AppStrings.rideStatusCompleted;
+        if (isCancelled) return AppStrings.rideStatusCancelled;
+        return AppStrings.searchingForDriver;
+    }
   }
 
   String get etaBanner {
-    if (normalizedStatus == 'accepted' || normalizedStatus == 'arrived') {
-      return AppStrings.driverOnTheWayEta(etaMinutes);
+    switch (normalizedStatus) {
+      case 'searching':
+        return AppStrings.searchingForDriver;
+      case 'accepted':
+        if (etaMinutes > 0) return AppStrings.driverOnTheWayEta(etaMinutes);
+        return AppStrings.driverOnTheWayLabel;
+      case 'arrived':
+        return AppStrings.driverHasArrived;
+      case 'ongoing':
+        return AppStrings.tripInProgress;
+      case 'completed':
+        return AppStrings.rideStatusCompleted;
+      case 'cancelled':
+        if (cancelReason.isNotEmpty) return cancelReason;
+        return AppStrings.rideStatusCancelled;
+      default:
+        if (statusLabel.trim().isNotEmpty) return statusLabel;
+        return AppStrings.onTheWay;
     }
-    if (statusLabel.trim().isNotEmpty) return statusLabel;
-    return AppStrings.onTheWay;
   }
 
   String get shareUrl {
@@ -144,24 +180,30 @@ class RideBooking {
   }
 
   RideBooking copyWith({
+    RideBookingStatus? status,
+    String? statusLabel,
+    String? otp,
     String? paymentMethod,
     String? paymentLabel,
     String? paymentStatus,
+    String? cancelReason,
+    String? rawStatus,
+    double? total,
     List<RidePaymentOption>? paymentOptions,
   }) {
     return RideBooking(
       id: id,
-      status: status,
-      statusLabel: statusLabel,
+      status: status ?? this.status,
+      statusLabel: statusLabel ?? this.statusLabel,
       pickup: pickup,
       drop: drop,
       distance: distance,
       driver: driver,
       vehicleLabel: vehicleLabel,
       displayId: displayId,
-      otp: otp,
+      otp: otp ?? this.otp,
       paymentLabel: paymentLabel ?? this.paymentLabel,
-      cancelReason: cancelReason,
+      cancelReason: cancelReason ?? this.cancelReason,
       baseFare: baseFare,
       gst: gst,
       cgst: cgst,
@@ -170,8 +212,8 @@ class RideBooking {
       distanceFare: distanceFare,
       waitingCharge: waitingCharge,
       discount: discount,
-      total: total,
-      rawStatus: rawStatus,
+      total: total ?? this.total,
+      rawStatus: rawStatus ?? this.rawStatus,
       etaMinutes: etaMinutes,
       sharePath: sharePath,
       shareToken: shareToken,
@@ -289,21 +331,27 @@ class RideBooking {
   ) {
     final trimmed = label?.trim() ?? '';
     if (trimmed.isNotEmpty) return trimmed;
-    if (raw.trim().isNotEmpty) {
-      return raw
-          .replaceAll('_', ' ')
-          .split(' ')
-          .where((part) => part.isNotEmpty)
-          .map((part) => '${part[0].toUpperCase()}${part.substring(1)}')
-          .join(' ');
+    switch (raw.trim().toLowerCase()) {
+      case 'searching':
+        return AppStrings.searchingForDriver;
+      case 'accepted':
+        return AppStrings.driverOnTheWayLabel;
+      case 'arrived':
+        return AppStrings.driverHasArrived;
+      case 'ongoing':
+        return AppStrings.tripInProgress;
+      case 'completed':
+        return AppStrings.rideStatusCompleted;
+      case 'cancelled':
+        return AppStrings.rideStatusCancelled;
     }
     switch (status) {
       case RideBookingStatus.completed:
-        return 'Completed';
+        return AppStrings.rideStatusCompleted;
       case RideBookingStatus.cancelled:
-        return 'Cancelled';
+        return AppStrings.rideStatusCancelled;
       case RideBookingStatus.ongoing:
-        return 'On the way';
+        return AppStrings.driverOnTheWayLabel;
     }
   }
 

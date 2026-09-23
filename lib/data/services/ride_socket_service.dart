@@ -4,8 +4,26 @@ import 'package:socket_io_client/socket_io_client.dart' as io;
 import '../../core/constants/api_constants.dart';
 import '../../core/utils/api_body.dart';
 import '../models/chat_message.dart';
-import '../repositories/notification_repository.dart';
 import 'storage_service.dart';
+
+/// Latest filtered [ride:status] payload for the active ride.
+class RideStatusEvent {
+  const RideStatusEvent({
+    required this.rideId,
+    required this.status,
+    this.otp = '',
+    this.paymentStatus = '',
+    this.reason = '',
+    this.fare,
+  });
+
+  final String rideId;
+  final String status;
+  final String otp;
+  final String paymentStatus;
+  final String reason;
+  final double? fare;
+}
 
 class RideSocketService extends GetxService {
   io.Socket? _socket;
@@ -17,9 +35,13 @@ class RideSocketService extends GetxService {
   final lastLng = 0.0.obs;
   final lastLocationAt = ''.obs;
   final lastStatus = ''.obs;
+  final lastOtp = ''.obs;
   final lastPaymentStatus = ''.obs;
+  final lastCancelReason = ''.obs;
+  final lastStatusEvent = Rxn<RideStatusEvent>();
   final incomingChat = Rxn<ChatMessage>();
   final notificationTick = 0.obs;
+  final isSocketConnected = false.obs;
 
   String get activeRideId => _activeRideId;
 
@@ -50,9 +72,13 @@ class RideSocketService extends GetxService {
     );
     _socket!
       ..onConnect((_) {
+        isSocketConnected.value = true;
         if (_activeRideId.isNotEmpty) {
           _socket?.emit('ride:join', _activeRideId);
         }
+      })
+      ..onDisconnect((_) {
+        isSocketConnected.value = false;
       })
       ..on('ride:status', _onStatus)
       ..on('ride:payment', _onPayment)
@@ -75,7 +101,10 @@ class RideSocketService extends GetxService {
     _activeRideId = '';
     lastRideId.value = '';
     lastStatus.value = '';
+    lastOtp.value = '';
     lastPaymentStatus.value = '';
+    lastCancelReason.value = '';
+    lastStatusEvent.value = null;
     lastLat.value = 0;
     lastLng.value = 0;
     lastLocationAt.value = '';
@@ -91,6 +120,7 @@ class RideSocketService extends GetxService {
 
   void disconnect() {
     leaveRide();
+    isSocketConnected.value = false;
     _socket?.dispose();
     _socket = null;
     _authToken = '';
@@ -117,10 +147,29 @@ class RideSocketService extends GetxService {
     final map = ApiBody.asMap(raw) ?? {};
     final rideId = rideIdFrom(map);
     if (!acceptsRideId(rideId)) return;
+    final status = (map['status'] ?? '').toString().trim();
+    final otp = (map['otp'] ?? '').toString().trim();
+    final payment = (map['paymentStatus'] ?? '').toString().trim();
+    final reason =
+        (map['reason'] ?? map['cancelReason'] ?? '').toString().trim();
+    final fareRaw = map['fare'] ?? map['total'];
+    final fare = fareRaw == null
+        ? null
+        : ApiBody.asNum(fareRaw).toDouble();
+
     lastRideId.value = rideId;
-    lastStatus.value = (map['status'] ?? '').toString();
-    final payment = (map['paymentStatus'] ?? '').toString();
+    lastStatus.value = status;
+    if (otp.isNotEmpty) lastOtp.value = otp;
     if (payment.isNotEmpty) lastPaymentStatus.value = payment;
+    if (reason.isNotEmpty) lastCancelReason.value = reason;
+    lastStatusEvent.value = RideStatusEvent(
+      rideId: rideId,
+      status: status,
+      otp: otp.isNotEmpty ? otp : lastOtp.value,
+      paymentStatus: payment,
+      reason: reason,
+      fare: fare,
+    );
   }
 
   void _onPayment(dynamic raw) {
@@ -154,8 +203,6 @@ class RideSocketService extends GetxService {
 
   void _onNotification(dynamic raw) {
     notificationTick.value++;
-    if (!Get.isRegistered<NotificationRepository>()) return;
-    // Fire-and-forget refresh; HomeController / Notifications listen via tick.
   }
 
   @override

@@ -153,6 +153,12 @@ class AppStrings {
   static const String availableCoupons = 'Available Coupons';
   static const String applied = 'Applied';
   static const String searchingDriver = 'Searching for Driver';
+  static const String searchingForDriver = 'Searching for driver';
+  static const String driverOnTheWayLabel = 'Driver on the way';
+  static const String driverHasArrived = 'Driver has arrived';
+  static const String tripInProgress = 'Trip in progress';
+  static const String rideStatusCompleted = 'Completed';
+  static const String rideStatusCancelled = 'Cancelled';
   static const String findingDriver = 'Finding a driver nearby';
   static const String findingDriverHint = 'This may take a few seconds...';
   static const String sos = 'SOS';

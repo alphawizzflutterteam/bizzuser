@@ -275,7 +275,11 @@ class HomeController extends GetxController with PageLoadingMixin {
       selectedCategory.imageAsset ?? vehicle?.imageAsset;
 
   String get shareOtpText {
-    final otp = liveRide?.otp.trim() ?? '';
+    final rideOtp = liveRide?.otp.trim() ?? '';
+    var otp = rideOtp;
+    if (otp.isEmpty && Get.isRegistered<RideSocketService>()) {
+      otp = Get.find<RideSocketService>().lastOtp.value.trim();
+    }
     final value = otp.isNotEmpty ? otp : AppStrings.shareOtpValue;
     return '${AppStrings.shareOtpLabel}$value';
   }
@@ -289,12 +293,12 @@ class HomeController extends GetxController with PageLoadingMixin {
   String get liveBannerText {
     final ride = liveRide;
     if (ride != null) return ride.etaBanner;
-    return AppStrings.driverOnTheWay;
+    return AppStrings.driverOnTheWayLabel;
   }
 
   String get liveStatusLabel {
-    final label = liveRide?.statusLabel.trim() ?? '';
-    if (label.isNotEmpty) return label;
+    final ride = liveRide;
+    if (ride != null) return ride.liveStatusUiLabel;
     return AppStrings.onTheWay;
   }
 
@@ -317,8 +321,13 @@ class HomeController extends GetxController with PageLoadingMixin {
 
   bool get showLiveOtp {
     final ride = liveRide;
-    if (ride == null) return true;
-    return ride.showOtp;
+    if (ride == null) return false;
+    if (ride.showOtp) return true;
+    if (!Get.isRegistered<RideSocketService>()) return false;
+    final otp = Get.find<RideSocketService>().lastOtp.value.trim();
+    if (otp.isEmpty) return false;
+    final status = ride.normalizedStatus;
+    return status == 'accepted' || status == 'arrived';
   }
 
   String get starCountLabel => '${rating.value} ${AppStrings.starLabel}';
@@ -725,6 +734,17 @@ class HomeController extends GetxController with PageLoadingMixin {
       awaitingDriverCash.value = false;
       activeRide.value = ride;
       watchRide(ride.id);
+
+      // Online/UPI at booking: assignment waits until verify-payment succeeds.
+      final method = RidePaymentOption.normalize(paymentMethod.value);
+      if (method == 'online') {
+        final paid = await _collectRidePayment();
+        if (!paid) {
+          AppUtils.showError(AppStrings.unableToStartPayment);
+          // Still open searching — server holds assignment until paid.
+        }
+      }
+
       Get.toNamed(AppRoutes.searchingDriver);
     } finally {
       isConfirmingBooking.value = false;
@@ -736,10 +756,28 @@ class HomeController extends GetxController with PageLoadingMixin {
     if (id.isEmpty) return;
     _stopPolling();
     _bindSocket(id);
-    _ridePoll = Timer.periodic(const Duration(seconds: 3), (_) {
+    // Socket is primary; HTTP poll is backup only (slower when connected).
+    _startBackupPoll();
+    unawaited(refreshActiveRide());
+  }
+
+  void _startBackupPoll() {
+    _stopPolling();
+    _ridePoll = Timer.periodic(const Duration(seconds: 8), (_) {
+      if (!Get.isRegistered<RideSocketService>()) {
+        unawaited(refreshActiveRide());
+        return;
+      }
+      final socket = Get.find<RideSocketService>();
+      // Poll more often only while searching or socket is down.
+      final searching = liveRide?.isSearching ?? false;
+      if (!socket.isConnected || searching) {
+        unawaited(refreshActiveRide());
+        return;
+      }
+      // Connected + assigned/live: occasional backup sync only.
       unawaited(refreshActiveRide());
     });
-    unawaited(refreshActiveRide());
   }
 
   /// Re-join socket room when opening Booking Detail for the live trip.
@@ -769,13 +807,14 @@ class HomeController extends GetxController with PageLoadingMixin {
     socket.connect();
     socket.joinRide(rideId);
     _statusWorker?.dispose();
-    _statusWorker = ever<String>(socket.lastStatus, (status) {
-      if (status.trim().isEmpty) return;
-      unawaited(refreshActiveRide());
+    _statusWorker = ever<RideStatusEvent?>(socket.lastStatusEvent, (event) {
+      if (event == null || event.status.trim().isEmpty) return;
+      _applySocketStatus(event);
     });
     _paymentWorker?.dispose();
     _paymentWorker = ever<String>(socket.lastPaymentStatus, (status) {
       if (status.trim().isEmpty) return;
+      _applySocketPayment(status);
       unawaited(refreshActiveRide());
     });
     _locationWorker?.dispose();
@@ -785,6 +824,80 @@ class HomeController extends GetxController with PageLoadingMixin {
       if (lat == 0 && lng == 0) return;
       driverPosition.value = DriverMapPosition(lat: lat, lng: lng);
     });
+  }
+
+  void _applySocketStatus(RideStatusEvent event) {
+    final current = activeRide.value;
+    if (current == null || current.id != event.rideId) return;
+
+    final status = event.status.trim().toLowerCase();
+    RideBookingStatus bucket = current.status;
+    if (status.contains('cancel')) {
+      bucket = RideBookingStatus.cancelled;
+    } else if (status.contains('complete')) {
+      bucket = RideBookingStatus.completed;
+    } else {
+      bucket = RideBookingStatus.ongoing;
+    }
+
+    final otp = event.otp.trim().isNotEmpty ? event.otp.trim() : current.otp;
+    activeRide.value = current.copyWith(
+      status: bucket,
+      rawStatus: event.status,
+      statusLabel: _labelForRawStatus(status),
+      otp: otp,
+      paymentStatus: event.paymentStatus.isNotEmpty
+          ? event.paymentStatus
+          : current.paymentStatus,
+      cancelReason: event.reason.isNotEmpty ? event.reason : current.cancelReason,
+      total: event.fare ?? current.total,
+    );
+
+    // On accept: re-join ride room and pull full driver/vehicle from REST.
+    if (status == 'accepted' || status == 'arrived' || status == 'ongoing') {
+      if (Get.isRegistered<RideSocketService>()) {
+        Get.find<RideSocketService>().joinRide(event.rideId);
+      }
+      unawaited(refreshActiveRide());
+    } else if (status == 'searching') {
+      // Keep searching UI; occasional REST backup is enough.
+    } else if (status == 'completed' || status == 'cancelled') {
+      unawaited(refreshActiveRide());
+    }
+
+    _handleTerminalStatus(activeRide.value!);
+  }
+
+  void _applySocketPayment(String paymentStatus) {
+    final current = activeRide.value;
+    if (current == null) return;
+    final paid = paymentStatus.trim().toLowerCase() == 'paid';
+    activeRide.value = current.copyWith(
+      paymentStatus: paymentStatus.trim().toLowerCase(),
+    );
+    if (paid) {
+      awaitingDriverCash.value = false;
+      _showRatingIfNeeded();
+    }
+  }
+
+  String _labelForRawStatus(String status) {
+    switch (status) {
+      case 'searching':
+        return AppStrings.searchingForDriver;
+      case 'accepted':
+        return AppStrings.driverOnTheWayLabel;
+      case 'arrived':
+        return AppStrings.driverHasArrived;
+      case 'ongoing':
+        return AppStrings.tripInProgress;
+      case 'completed':
+        return AppStrings.rideStatusCompleted;
+      case 'cancelled':
+        return AppStrings.rideStatusCancelled;
+      default:
+        return status;
+    }
   }
 
   void _stopPolling() {
