@@ -5,7 +5,10 @@ import 'package:socket_io_client/socket_io_client.dart' as io;
 
 import '../../core/constants/api_constants.dart';
 import '../../core/utils/api_body.dart';
+import '../../core/constants/app_strings.dart';
+import '../../core/routes/app_routes.dart';
 import '../models/chat_message.dart';
+import 'push_notification_service.dart';
 import 'storage_service.dart';
 
 /// Latest filtered [ride:status] payload for the active ride.
@@ -374,7 +377,20 @@ class RideSocketService extends GetxService {
     final rideId = rideIdFrom(map);
     if (!acceptsRideId(rideId)) return;
     lastRideId.value = rideId;
-    incomingChat.value = ChatMessage.fromJson({...map, 'rideId': rideId});
+    final message = ChatMessage.fromJson({...map, 'rideId': rideId});
+    incomingChat.value = message;
+    // Driver wrote while the rider is elsewhere in the app: notify.
+    if (!message.isMine && Get.currentRoute != AppRoutes.rideChat) {
+      PushNotificationService.showChat(
+        title: AppStrings.newMessageFromDriver,
+        body: message.text.isNotEmpty
+            ? message.text
+            : (message.hasAttachment
+                ? AppStrings.chatPhoto
+                : AppStrings.newMessage),
+        rideId: rideId,
+      );
+    }
   }
 
   void _onNotification(dynamic raw) {

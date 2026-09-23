@@ -423,6 +423,8 @@ class AppStrings {
   static const String callingDriver = 'Calling driver';
   static const String typeHere = 'Type here...';
   static const String newMessage = 'New message';
+  static const String newMessageFromDriver = 'New message from your driver';
+  static const String chatPhoto = 'Sent a photo';
   static const String chatDate = 'Today, Nov 13';
   static const String chatTime = '11:42 AM';
   static const String chatIncomingOne =

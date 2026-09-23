@@ -1842,6 +1842,19 @@ class HomeController extends GetxController with PageLoadingMixin {
     Get.toNamed(AppRoutes.rideChat, arguments: liveRide);
   }
 
+  /// Chat notification tap: open that ride's chat (loading the ride first
+  /// when it isn't the one on screen).
+  Future<void> openChatForRide(String rideId) async {
+    final id = rideId.trim();
+    if (id.isEmpty) return;
+    if (liveRide?.id != id) {
+      await openRideById(id);
+      if (liveRide?.id != id || liveRide?.isLive != true) return;
+    }
+    if (Get.currentRoute == AppRoutes.rideChat) return;
+    openChat();
+  }
+
   void callDriver() {
     unawaited(launchDialer(liveDriver.phone));
   }
