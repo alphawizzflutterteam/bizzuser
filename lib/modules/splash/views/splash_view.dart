@@ -16,6 +16,9 @@ class SplashView extends GetView<SplashController> {
       value: SystemUiOverlayStyle.light.copyWith(
         statusBarColor: Colors.transparent,
         systemNavigationBarColor: Colors.black,
+        systemNavigationBarIconBrightness: Brightness.light,
+        // Android 15 edge-to-edge adds a light scrim behind 3-button nav otherwise.
+        systemNavigationBarContrastEnforced: false,
       ),
       child: Scaffold(
         backgroundColor: Colors.black,
