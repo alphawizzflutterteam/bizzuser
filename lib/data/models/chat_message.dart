@@ -1,5 +1,6 @@
 import '../../core/constants/app_strings.dart';
 import '../../core/utils/date_format_utils.dart';
+import '../../core/utils/media_url.dart';
 
 class ChatMessage {
   const ChatMessage({
@@ -8,6 +9,7 @@ class ChatMessage {
     required this.text,
     required this.isMine,
     required this.time,
+    this.attachment = '',
   });
 
   final String id;
@@ -15,6 +17,16 @@ class ChatMessage {
   final String text;
   final bool isMine;
   final String time;
+
+  /// Server path of a photo sent in chat (e.g. `/uploads/x.png`).
+  final String attachment;
+
+  String get attachmentUrl => MediaUrl.resolve(attachment);
+
+  bool get hasAttachment => attachment.trim().isNotEmpty;
+
+  /// Nothing to show (no text and no photo).
+  bool get isEmpty => text.isEmpty && !hasAttachment;
 
   factory ChatMessage.fromJson(Map<String, dynamic> json) {
     final role =
@@ -39,6 +51,7 @@ class ChatMessage {
       text: (json['text'] ?? json['message'] ?? json['body'])?.toString().trim() ??
           '',
       isMine: mine,
+      attachment: json['attachment']?.toString().trim() ?? '',
       time: DateFormatUtils.chatTime(
         json['createdAt']?.toString(),
         fallback: AppStrings.chatTime,

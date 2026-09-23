@@ -8,6 +8,7 @@ import '../../core/constants/app_strings.dart';
 import '../../core/exceptions/api_exception.dart';
 import '../../core/utils/api_body.dart';
 import '../../core/utils/api_logger.dart';
+import 'session_expiry.dart';
 import 'storage_service.dart';
 
 class ApiService extends GetConnect {
@@ -185,6 +186,9 @@ class ApiService extends GetConnect {
     }
 
     final status = response.statusCode ?? 0;
+    if (status == 401 && _sentToken(response) && !path.contains('/auth/')) {
+      SessionExpiry.handle();
+    }
     var json =
         ApiBody.asMap(response.body) ?? ApiBody.asMap(response.bodyString);
     if (json == null) {
@@ -276,6 +280,11 @@ class ApiService extends GetConnect {
       error: exception,
     );
     throw exception;
+  }
+
+  bool _sentToken(Response<dynamic> response) {
+    final header = response.request?.headers[ApiConstants.headerAuthorization];
+    return header != null && header.startsWith('Bearer ');
   }
 
   List<dynamic>? _decodeList(String? raw) {

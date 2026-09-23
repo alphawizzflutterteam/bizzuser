@@ -20,7 +20,10 @@ class PhotoSourceSheet extends StatelessWidget {
     required VoidCallback onGallery,
   }) {
     Get.bottomSheet(
-      PhotoSourceSheet(onCamera: onCamera, onGallery: onGallery),
+      SafeArea(
+        top: false,
+        child: PhotoSourceSheet(onCamera: onCamera, onGallery: onGallery),
+      ),
       backgroundColor: AppColors.white,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),

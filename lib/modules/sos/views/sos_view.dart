@@ -120,7 +120,10 @@ class SosView extends GetView<SosController> {
                             action: SafetyCatalog.actions[2],
                             onTap: () {
                               Get.bottomSheet(
-                                const ReportSafetyDialog(),
+                                const SafeArea(
+                                  top: false,
+                                  child: ReportSafetyDialog(),
+                                ),
                                 isScrollControlled: true,
                                 backgroundColor: AppColors.white,
                                 shape: const RoundedRectangleBorder(

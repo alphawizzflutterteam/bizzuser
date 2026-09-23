@@ -70,7 +70,7 @@ class RideChatController extends GetxController with PageLoadingMixin {
   void _listenSocket() {
     if (!Get.isRegistered<RideSocketService>()) return;
     _chatWorker = ever(Get.find<RideSocketService>().incomingChat, (message) {
-      if (message == null || message.text.isEmpty) return;
+      if (message == null || message.isEmpty) return;
       final currentRideId = rideId;
       if (message.rideId.isNotEmpty &&
           currentRideId.isNotEmpty &&
@@ -84,7 +84,7 @@ class RideChatController extends GetxController with PageLoadingMixin {
   /// Adds [message] unless a message with the same `_id` is already shown
   /// (socket echo of our own send, REST + socket, reconnect replays).
   void _addUnique(ChatMessage message) {
-    if (message.text.isEmpty) return;
+    if (message.isEmpty) return;
     final id = message.id.trim();
     if (id.isNotEmpty && messages.any((item) => item.id == id)) return;
     messages.add(message);

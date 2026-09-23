@@ -13,7 +13,7 @@ class CancelRideSheet extends StatelessWidget {
 
   static void show() {
     Get.bottomSheet(
-      const CancelRideSheet(),
+      const SafeArea(top: false, child: CancelRideSheet()),
       isScrollControlled: true,
       backgroundColor: AppColors.white,
       shape: const RoundedRectangleBorder(
