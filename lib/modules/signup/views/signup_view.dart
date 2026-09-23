@@ -24,7 +24,7 @@ class SignupView extends GetView<SignupController> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const AppLogo(width: 168),
+            const AppLogo(),
             const SizedBox(height: 20),
             AppText(
               text: AppStrings.signupTitle,
