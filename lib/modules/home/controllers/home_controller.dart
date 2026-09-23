@@ -1438,12 +1438,30 @@ class HomeController extends GetxController with PageLoadingMixin {
       }
     }
     if (option != null && !option.available) {
-      if (option.isWallet) {
-        Get.toNamed(AppRoutes.wallet);
-      }
+      if (option.isWallet) unawaited(_topUpWalletForRide());
       return;
     }
     paymentMethod.value = value;
+  }
+
+  /// Wallet short for this fare: open the wallet, then re-fetch the ride on
+  /// return – the server computes payment options (balance / shortfall) from
+  /// the current wallet balance, so the cached options are stale after a top-up.
+  Future<void> _topUpWalletForRide() async {
+    await Get.toNamed(AppRoutes.wallet);
+    final id = liveRide?.id ?? '';
+    if (id.isEmpty || !Get.isRegistered<RideRepository>()) return;
+    try {
+      final fetched = await Get.find<RideRepository>().fetchRide(id);
+      if (activeRideId != id) return;
+      activeRide.value = fetched;
+      final wallet = paymentOptions.where((item) => item.isWallet);
+      if (wallet.isNotEmpty && wallet.first.available) {
+        paymentMethod.value = wallet.first.method;
+      } else {
+        _syncPaymentSelection();
+      }
+    } catch (_) {}
   }
 
   void openRateReview() {
