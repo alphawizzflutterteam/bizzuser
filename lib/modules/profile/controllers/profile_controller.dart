@@ -13,6 +13,7 @@ import '../../../data/models/profile_menu_item.dart';
 import '../../../data/repositories/auth_repository.dart';
 import '../../../data/repositories/profile_repository.dart';
 import '../../../data/services/sos_service.dart';
+import '../../home/controllers/home_controller.dart';
 import '../widgets/photo_source_sheet.dart';
 
 class ProfileController extends GetxController with PageLoadingMixin {
@@ -166,9 +167,18 @@ class ProfileController extends GetxController with PageLoadingMixin {
     if (Get.isRegistered<AuthRepository>()) {
       message = await Get.find<AuthRepository>().logout();
     }
+    _endSession();
+    AppUtils.showSuccess(message);
+  }
+
+  /// Back to login and drop the session-wide ride state (HomeController is
+  /// permanent), so the next account starts clean.
+  void _endSession() {
     Get.offAllNamed(AppRoutes.login);
     SosService.clearActive();
-    AppUtils.showSuccess(message);
+    if (Get.isRegistered<HomeController>()) {
+      Get.delete<HomeController>(force: true);
+    }
   }
 
   Future<void> deleteAccount() async {
@@ -178,16 +188,14 @@ class ProfileController extends GetxController with PageLoadingMixin {
     );
     if (confirmed != true) return;
     if (!Get.isRegistered<AuthRepository>()) {
-      Get.offAllNamed(AppRoutes.login);
-      SosService.clearActive();
+      _endSession();
       return;
     }
     final message = await runApi(
       () => Get.find<AuthRepository>().deleteAccount(),
     );
     if (message == null) return;
-    Get.offAllNamed(AppRoutes.login);
-    SosService.clearActive();
+    _endSession();
     AppUtils.showSuccess(message);
   }
 }
