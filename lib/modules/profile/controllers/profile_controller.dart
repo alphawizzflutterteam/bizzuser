@@ -21,20 +21,18 @@ class ProfileController extends GetxController with PageLoadingMixin {
   final photoPath = RxnString();
   final ImagePicker _picker = ImagePicker();
 
-  String get displayName {
-    final name = user.value.name.trim();
-    return name.isEmpty ? AppStrings.profileUserName : name;
-  }
+  /// Real profile values only – no demo fallbacks.
+  String get displayName => user.value.name.trim();
 
   String get displayPhone {
     final phone = user.value.phone.trim();
-    if (phone.isEmpty) return AppStrings.profileUserPhone;
+    if (phone.isEmpty) return '';
     return PhoneUtils.displayPhone(phone);
   }
 
   String get displayEmail {
     final email = user.value.email.trim();
-    return email.isEmpty ? AppStrings.profileUserEmail : email;
+    return email.isEmpty ? AppStrings.addEmail : email;
   }
 
   String? get avatarPath {
@@ -82,9 +80,20 @@ class ProfileController extends GetxController with PageLoadingMixin {
   void _applyCached() {
     if (!Get.isRegistered<ProfileRepository>()) return;
     final cached = Get.find<ProfileRepository>().cachedUser();
-    if (cached != null) {
-      user.value = cached;
-    }
+    // Live mode: never show the offline demo profile while loading.
+    user.value = cached ??
+        const AuthUser(
+          id: '',
+          name: '',
+          phone: '',
+          email: '',
+          avatar: '',
+          city: '',
+          status: '',
+          walletBalance: 0,
+          rating: 0,
+          referralCode: '',
+        );
   }
 
   void openItem(ProfileMenuItem item) {

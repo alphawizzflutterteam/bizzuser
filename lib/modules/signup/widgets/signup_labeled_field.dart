@@ -67,11 +67,7 @@ class SignupLabeledField extends StatelessWidget {
         const SizedBox(height: 6),
         AppTextField(
           controller: controller,
-          hintText:
-              hintText ??
-              (prefixIcon == null && prefix == null
-                  ? AppStrings.fieldPlaceholder
-                  : null),
+          hintText: hintText,
           keyboardType: keyboardType,
           textInputAction: textInputAction,
           textCapitalization: textCapitalization,
@@ -122,7 +118,7 @@ class SignupPhoneField extends StatelessWidget {
       textInputAction: TextInputAction.next,
       validator: validator,
       readOnly: readOnly,
-      hintText: AppStrings.fieldPlaceholder,
+      hintText: AppStrings.hintPhone,
       fillColor: fillColor,
       prefix: const PhoneCodePrefix(),
       inputFormatters: [

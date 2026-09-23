@@ -6,7 +6,7 @@ import '../../../core/constants/app_dimensions.dart';
 import '../../../core/constants/app_strings.dart';
 import '../../../core/constants/app_text_styles.dart';
 import '../../../core/routes/app_routes.dart';
-import '../../../core/utils/app_utils.dart';
+import '../../../core/utils/phone_call.dart';
 import '../../../data/services/sos_service.dart';
 import '../../../core/widgets/app_card.dart';
 import '../../../core/widgets/app_text.dart';
@@ -280,9 +280,7 @@ class RideDetailView extends StatelessWidget {
                       if (ride.driver.phone.isNotEmpty)
                         CircleIconButton(
                           icon: Icons.call_outlined,
-                          onTap: () => AppUtils.showInfo(
-                            '${AppStrings.callingDriver} ${ride.driver.phone}',
-                          ),
+                          onTap: () => launchDialer(ride.driver.phone),
                         ),
                       if (ride.id.isNotEmpty) ...[
                         if (ride.driver.phone.isNotEmpty)

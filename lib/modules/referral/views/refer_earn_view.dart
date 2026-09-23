@@ -287,9 +287,7 @@ class _InviteSection extends StatelessWidget {
                           maxLines: 1,
                         ),
                         AppText(
-                          text: invite.date.isEmpty
-                              ? invite.statusLabel
-                              : '${invite.statusLabel} · ${invite.date}',
+                          text: invite.timelineLabel,
                           fontSize: 12,
                           color: AppColors.tabInactive,
                         ),
@@ -297,12 +295,20 @@ class _InviteSection extends StatelessWidget {
                     ),
                   ),
                   if (invite.amount > 0)
-                    AppText(
-                      text: AppUtils.rupee(invite.amount),
-                      fontSize: 14,
-                      fontWeight: FontWeight.w700,
-                      color: amountColor,
-                    ),
+                    invite.isRewarded
+                        ? AppText(
+                            text: '+${AppUtils.rupee(invite.amount)}',
+                            fontSize: 14,
+                            fontWeight: FontWeight.w700,
+                            color: amountColor,
+                          )
+                        : AppText(
+                            text:
+                                '${AppStrings.earnLabel} ${AppUtils.rupee(invite.amount)}',
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: AppColors.tabInactive,
+                          ),
                 ],
               ),
             ),

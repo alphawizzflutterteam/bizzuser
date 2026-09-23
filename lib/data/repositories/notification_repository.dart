@@ -24,4 +24,9 @@ class NotificationRepository extends BaseRepository {
     final map = ApiBody.dataMap(json);
     return AppNotification.fromJson(map.isEmpty ? json : map);
   }
+
+  /// `PATCH /user/notifications/read-all`.
+  Future<void> markAllRead() async {
+    await apiService.patchJson('${ApiConstants.notifications}/read-all');
+  }
 }

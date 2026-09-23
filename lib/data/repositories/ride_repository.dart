@@ -75,9 +75,11 @@ class RideRepository extends BaseRepository {
   Future<ChatMessage> sendMessage({
     required String rideId,
     required String text,
+    String clientId = '',
   }) async {
     final json = await apiService.postJson(ApiConstants.rideMessages(rideId), {
       'text': text.trim(),
+      if (clientId.trim().isNotEmpty) 'clientId': clientId.trim(),
     });
     final map = ApiBody.dataMap(json);
     if (map.isNotEmpty) {

@@ -49,6 +49,21 @@ class AddressFormView extends GetView<AddressFormController> {
                         Icons.search_rounded,
                         color: AppColors.tabInactive,
                       ),
+                      suffixIcon: ValueListenableBuilder<TextEditingValue>(
+                        valueListenable: controller.searchController,
+                        builder: (context, value, _) {
+                          if (value.text.isEmpty) {
+                            return const SizedBox.shrink();
+                          }
+                          return IconButton(
+                            onPressed: controller.clearSearch,
+                            icon: const Icon(
+                              Icons.close_rounded,
+                              color: AppColors.tabInactive,
+                            ),
+                          );
+                        },
+                      ),
                       onChanged: controller.onSearchChanged,
                     ),
                     Obx(() {
@@ -117,6 +132,7 @@ class AddressFormView extends GetView<AddressFormController> {
                       SignupLabeledField(
                         label: AppStrings.addressLabel,
                         controller: controller.labelController,
+                        hintText: AppStrings.hintAddressLabel,
                         readOnly: true,
                         fillColor: AppColors.white,
                         onTap: controller.openLabelPicker,
@@ -131,6 +147,7 @@ class AddressFormView extends GetView<AddressFormController> {
                       SignupLabeledField(
                         label: AppStrings.addressName,
                         controller: controller.nameController,
+                        hintText: AppStrings.hintAddressName,
                         textCapitalization: TextCapitalization.words,
                         textInputAction: TextInputAction.next,
                         fillColor: AppColors.white,
@@ -146,7 +163,8 @@ class AddressFormView extends GetView<AddressFormController> {
                       minLines: 2,
                       hintText: AppStrings.pickOnMap,
                       suffixIcon: Obx(
-                        () => controller.isResolvingAddress.value
+                        () => controller.isResolvingAddress.value ||
+                                controller.isLocating.value
                             ? const Padding(
                                 padding: EdgeInsets.all(12),
                                 child: SizedBox(
@@ -158,9 +176,12 @@ class AddressFormView extends GetView<AddressFormController> {
                                   ),
                                 ),
                               )
-                            : const Icon(
-                                Icons.my_location_rounded,
-                                color: AppColors.brandYellow,
+                            : IconButton(
+                                onPressed: controller.useCurrentLocation,
+                                icon: const Icon(
+                                  Icons.my_location_rounded,
+                                  color: AppColors.brandYellow,
+                                ),
                               ),
                       ),
                     ),
@@ -169,6 +190,8 @@ class AddressFormView extends GetView<AddressFormController> {
                       () => AppButton(
                         title: controller.saveButtonTitle,
                         isLoading: controller.isLoading.value,
+                        // Pick mode: disabled until a place is selected.
+                        enabled: controller.canConfirm,
                         backgroundColor: AppColors.brandBlack,
                         textColor: AppColors.white,
                         borderRadius: 28,

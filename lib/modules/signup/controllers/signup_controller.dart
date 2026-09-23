@@ -22,7 +22,7 @@ class SignupController extends GetxController {
   final isLoading = false.obs;
   late final SignupFlowArgs flowArgs;
 
-  String? validateName(String? value) => AppValidators.required(value);
+  String? validateName(String? value) => AppValidators.name(value);
 
   String? validatePhone(String? value) => AppValidators.phone(value);
 
@@ -53,7 +53,7 @@ class SignupController extends GetxController {
       final result = await runApi(
         () => Get.find<AuthRepository>().register(
           signupToken: flowArgs.signupToken,
-          name: nameController.text.trim(),
+          name: AppValidators.normalizeName(nameController.text),
           email: emailController.text.trim(),
           referralCode: referralController.text.trim().toUpperCase(),
         ),

@@ -12,10 +12,10 @@ import '../../../core/widgets/circle_icon_button.dart';
 import '../../../core/widgets/fare_details.dart';
 import '../../../core/widgets/ride_chips.dart';
 import '../../../data/models/ride_booking.dart';
-import '../../../data/repositories/ride_catalog.dart';
 import '../../home/controllers/home_controller.dart';
 import '../../rides/views/ride_detail_view.dart';
-import '../widgets/route_trip_map.dart';
+// In-app map replaced by the Track button (opens Google Maps).
+// import '../widgets/route_trip_map.dart';
 
 class BookingDetailView extends StatelessWidget {
   const BookingDetailView({super.key});
@@ -64,6 +64,14 @@ class _HomeBookingDetailViewState extends State<HomeBookingDetailView> {
           icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 18),
         ),
         actions: [
+          Obx(() {
+            // Only once a driver is assigned (accepted / arrived / ongoing).
+            final ride = controller.liveRide;
+            if (ride == null || !ride.isAssigned) {
+              return const SizedBox.shrink();
+            }
+            return Center(child: TrackChip(onTap: controller.trackDriver));
+          }),
           SosChip(onTap: () => controller.triggerSos(requireRideId: true)),
         ],
       ),
@@ -71,26 +79,28 @@ class _HomeBookingDetailViewState extends State<HomeBookingDetailView> {
         padding: const EdgeInsets.all(AppDimensions.paddingMedium),
         child: Column(
           children: [
-            Obx(() {
-              final ride = controller.liveRide;
-              final pos = controller.driverPosition.value;
-              if (ride == null) return const SizedBox.shrink();
-              return ClipRRect(
-                borderRadius: BorderRadius.circular(AppDimensions.radiusLarge),
-                child: SizedBox(
-                  height: 220,
-                  width: double.infinity,
-                  child: RouteTripMap(
-                    pickup: ride.pickup,
-                    drop: ride.drop,
-                    distance: ride.distance,
-                    driverLat: pos?.lat,
-                    driverLng: pos?.lng,
-                  ),
-                ),
-              );
-            }),
-            const SizedBox(height: AppDimensions.paddingMedium),
+            // In-app map replaced by the Track button in the app bar, which
+            // opens Google Maps with the driver's live position.
+            // Obx(() {
+            //   final ride = controller.liveRide;
+            //   final pos = controller.driverPosition.value;
+            //   if (ride == null) return const SizedBox.shrink();
+            //   return ClipRRect(
+            //     borderRadius: BorderRadius.circular(AppDimensions.radiusLarge),
+            //     child: SizedBox(
+            //       height: 220,
+            //       width: double.infinity,
+            //       child: RouteTripMap(
+            //         pickup: ride.pickup,
+            //         drop: ride.drop,
+            //         distance: ride.distance,
+            //         driverLat: pos?.lat,
+            //         driverLng: pos?.lng,
+            //       ),
+            //     ),
+            //   );
+            // }),
+            // const SizedBox(height: AppDimensions.paddingMedium),
             Container(
               width: double.infinity,
               padding: const EdgeInsets.symmetric(
@@ -200,6 +210,13 @@ class _HomeBookingDetailViewState extends State<HomeBookingDetailView> {
                   Obx(() {
                     final vehicle = controller.vehicle;
                     final plate = controller.livePlate;
+                    final driver = controller.liveDriver;
+                    // Real vehicle details only (model / colour from the
+                    // assigned driver) – no placeholder copy.
+                    final details = [
+                      driver.vehicleModel.trim(),
+                      driver.vehicleColor.trim(),
+                    ].where((item) => item.isNotEmpty).join(' · ');
                     if (vehicle == null) return const SizedBox.shrink();
                     return Row(
                       children: [
@@ -229,23 +246,18 @@ class _HomeBookingDetailViewState extends State<HomeBookingDetailView> {
                                   fontWeight: FontWeight.w700,
                                 ),
                               ),
-                              AppText(
-                                text: AppStrings.spaciousLuxury,
-                                style: AppTextStyles.caption.copyWith(
-                                  color: AppColors.textHint,
+                              if (details.isNotEmpty)
+                                AppText(
+                                  text: details,
+                                  style: AppTextStyles.caption.copyWith(
+                                    color: AppColors.textHint,
+                                  ),
                                 ),
-                              ),
-                              AppText(
-                                text: AppStrings.pickupTimeValue,
-                                style: AppTextStyles.caption.copyWith(
-                                  color: AppColors.textHint,
-                                ),
-                              ),
                             ],
                           ),
                         ),
                         AppText(
-                          text: plate,
+                          text: plate.isNotEmpty ? plate : '–',
                           style: AppTextStyles.caption.copyWith(
                             fontWeight: FontWeight.w600,
                           ),
@@ -286,29 +298,28 @@ class _HomeBookingDetailViewState extends State<HomeBookingDetailView> {
                             AppText(
                               text: driver.hasName
                                   ? driver.name
-                                  : RideCatalog.driver.name,
+                                  : AppStrings.yourDriver,
                               style: AppTextStyles.body.copyWith(
                                 fontWeight: FontWeight.w700,
                               ),
                             ),
-                            Row(
-                              children: [
-                                const Icon(
-                                  Icons.star_rounded,
-                                  size: AppDimensions.iconSizeSmall,
-                                  color: AppColors.brandYellow,
-                                ),
-                                const SizedBox(width: 2),
-                                AppText(
-                                  text: driver.rating.isNotEmpty
-                                      ? driver.rating
-                                      : RideCatalog.driver.rating,
-                                  style: AppTextStyles.caption.copyWith(
-                                    fontWeight: FontWeight.w600,
+                            if (driver.rating.isNotEmpty)
+                              Row(
+                                children: [
+                                  const Icon(
+                                    Icons.star_rounded,
+                                    size: AppDimensions.iconSizeSmall,
+                                    color: AppColors.brandYellow,
                                   ),
-                                ),
-                              ],
-                            ),
+                                  const SizedBox(width: 2),
+                                  AppText(
+                                    text: driver.rating,
+                                    style: AppTextStyles.caption.copyWith(
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ],
+                              ),
                           ],
                         ),
                       ),

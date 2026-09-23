@@ -11,6 +11,8 @@ class RideDriver {
     this.photoUrl = '',
     this.vehicleModel = '',
     this.vehicleColor = '',
+    this.lat,
+    this.lng,
   });
 
   final String name;
@@ -21,6 +23,13 @@ class RideDriver {
   final String photoUrl;
   final String vehicleModel;
   final String vehicleColor;
+
+  /// Driver's last known position (`location.coordinates` is `[lng, lat]`).
+  final double? lat;
+  final double? lng;
+
+  bool get hasLocation =>
+      lat != null && lng != null && (lat != 0 || lng != 0);
 
   bool get hasName => name.trim().isNotEmpty;
 
@@ -45,6 +54,7 @@ class RideDriver {
       );
     }
     final ratingValue = json['rating'] ?? json['avgRating'];
+    final coords = _coordinates(json['location']);
     return RideDriver(
       name: (json['name'] ?? json['fullName'] ?? json['driverName'])
               ?.toString()
@@ -79,7 +89,20 @@ class RideDriver {
               ?.toString()
               .trim() ??
           '',
+      lat: coords?[1],
+      lng: coords?[0],
     );
+  }
+
+  /// GeoJSON point → `[lng, lat]`, or null when missing / malformed.
+  static List<double>? _coordinates(dynamic raw) {
+    final location = ApiBody.asMap(raw);
+    final list = location?['coordinates'];
+    if (list is! List || list.length < 2) return null;
+    final lng = double.tryParse(list[0].toString());
+    final lat = double.tryParse(list[1].toString());
+    if (lng == null || lat == null) return null;
+    return [lng, lat];
   }
 
   static String _rating(dynamic value) {

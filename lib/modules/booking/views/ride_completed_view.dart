@@ -10,7 +10,6 @@ import '../../../core/widgets/app_card.dart';
 import '../../../core/widgets/app_text.dart';
 import '../../../core/widgets/fare_details.dart';
 import '../../../core/widgets/ride_chips.dart';
-import '../../../data/repositories/ride_catalog.dart';
 import '../../home/controllers/home_controller.dart';
 import '../widgets/payment_method_sheet.dart';
 
@@ -113,7 +112,7 @@ class _RideCompletedViewState extends State<RideCompletedView> {
                               return AppText(
                                 text: driver.hasName
                                     ? driver.name
-                                    : RideCatalog.driver.name,
+                                    : AppStrings.yourDriver,
                                 style: AppTextStyles.body.copyWith(
                                   fontWeight: FontWeight.w700,
                                 ),
@@ -132,7 +131,7 @@ class _RideCompletedViewState extends State<RideCompletedView> {
                                   return AppText(
                                     text: driver.rating.isNotEmpty
                                         ? driver.rating
-                                        : RideCatalog.driver.rating,
+                                        : '–',
                                     style: AppTextStyles.caption,
                                   );
                                 }),

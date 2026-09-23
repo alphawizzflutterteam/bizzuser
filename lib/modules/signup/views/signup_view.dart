@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:get/get.dart';
 
 import '../../../core/constants/app_colors.dart';
@@ -47,6 +48,8 @@ class SignupView extends GetView<SignupController> {
               textCapitalization: TextCapitalization.words,
               textInputAction: TextInputAction.next,
               validator: controller.validateName,
+              hintText: AppStrings.hintFullName,
+              inputFormatters: [LengthLimitingTextInputFormatter(30)],
             ),
             const SizedBox(height: 12),
             SignupPhoneField(
@@ -61,12 +64,14 @@ class SignupView extends GetView<SignupController> {
               keyboardType: TextInputType.emailAddress,
               textInputAction: TextInputAction.next,
               validator: controller.validateEmail,
+              hintText: AppStrings.hintEmail,
             ),
             const SizedBox(height: 12),
             SignupLabeledField(
               label: AppStrings.referralCodeOptional,
               controller: controller.referralController,
               textInputAction: TextInputAction.done,
+              hintText: AppStrings.hintReferralCode,
             ),
             const SizedBox(height: 20),
             Obx(

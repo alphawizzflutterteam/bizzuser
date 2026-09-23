@@ -34,7 +34,7 @@ class RideChatView extends GetView<RideChatController> {
               const SizedBox(width: AppDimensions.paddingSmall),
               Expanded(
                 child: AppText(
-                  text: driver.hasName ? driver.name : AppStrings.driverName,
+                  text: driver.hasName ? driver.name : AppStrings.yourDriver,
                   style: AppTextStyles.heading,
                   maxLines: 1,
                 ),

@@ -115,6 +115,17 @@ class PaymentMethodPanel extends GetView<HomeController> {
           const SizedBox(height: 12),
           Obx(() {
             if (controller.isRidePaid) {
+              // Already rated → no second review; just leave the screen.
+              if (controller.liveRide?.rated == true) {
+                return AppButton(
+                  title: AppStrings.backToHome,
+                  backgroundColor: AppColors.brandBlack,
+                  textColor: AppColors.white,
+                  borderRadius: 28,
+                  height: 54,
+                  onPressed: controller.leaveCompletedRide,
+                );
+              }
               return AppButton(
                 title: AppStrings.rateAndReview,
                 backgroundColor: AppColors.brandBlack,

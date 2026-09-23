@@ -10,6 +10,27 @@ class AppValidators {
     return null;
   }
 
+  /// Trims and collapses inner whitespace ("  Ravi   Kumar " → "Ravi Kumar").
+  static String normalizeName(String? value) {
+    return (value ?? '').trim().replaceAll(RegExp(r'\s+'), ' ');
+  }
+
+  /// 3–30 characters; letters (any script), spaces and . ' - only,
+  /// starting with a letter. Mirrors the backend rule.
+  static String? name(String? value) {
+    final requiredError = required(value);
+    if (requiredError != null) return requiredError;
+    final normalized = normalizeName(value);
+    if (normalized.length < 3 || normalized.length > 30) {
+      return AppStrings.nameLength;
+    }
+    final pattern = RegExp(r"^[\p{L}][\p{L}\s.'-]*$", unicode: true);
+    if (!pattern.hasMatch(normalized)) {
+      return AppStrings.nameCharacters;
+    }
+    return null;
+  }
+
   static String? email(String? value) {
     final requiredError = required(value);
     if (requiredError != null) return requiredError;

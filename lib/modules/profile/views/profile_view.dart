@@ -95,11 +95,13 @@ class _ProfileHeader extends GetView<ProfileController> {
                   maxLines: 1,
                 ),
                 const SizedBox(height: 8),
-                _ContactLine(
-                  icon: Icons.phone_outlined,
-                  text: controller.displayPhone,
-                ),
-                const SizedBox(height: 6),
+                if (controller.displayPhone.isNotEmpty) ...[
+                  _ContactLine(
+                    icon: Icons.phone_outlined,
+                    text: controller.displayPhone,
+                  ),
+                  const SizedBox(height: 6),
+                ],
                 _ContactLine(
                   icon: Icons.mail_outline_rounded,
                   text: controller.displayEmail,

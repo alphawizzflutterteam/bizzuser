@@ -1,3 +1,5 @@
+import 'dart:math';
+
 import 'package:get/get.dart';
 
 import '../../core/constants/map_constants.dart';
@@ -15,18 +17,45 @@ class PlacesService extends GetConnect {
     super.onInit();
   }
 
-  Future<List<PlaceSuggestion>> autocomplete(String input) async {
+  static final Random _random = Random.secure();
+
+  /// Places Autocomplete session token (UUID v4). One per search session:
+  /// keystrokes of one search share it, and it ends with the details lookup
+  /// of the selected place.
+  static String newSessionToken() {
+    final bytes = List<int>.generate(16, (_) => _random.nextInt(256));
+    bytes[6] = (bytes[6] & 0x0f) | 0x40;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    final hex = bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
+    return '${hex.substring(0, 8)}-${hex.substring(8, 12)}-'
+        '${hex.substring(12, 16)}-${hex.substring(16, 20)}-${hex.substring(20)}';
+  }
+
+  /// [biasLat]/[biasLng]: prefer results within 50 km of this point (current
+  /// pickup / device location) when known.
+  Future<List<PlaceSuggestion>> autocomplete(
+    String input, {
+    String sessionToken = '',
+    double? biasLat,
+    double? biasLng,
+  }) async {
     final query = input.trim();
     if (query.length < 2) return const [];
 
     final path =
         '${MapConstants.placesBaseUrl}${MapConstants.autocompletePath}';
+    final hasBias = biasLat != null &&
+        biasLng != null &&
+        (biasLat != 0 || biasLng != 0);
     final response = await get(
       MapConstants.autocompletePath,
       query: {
         'input': query,
         'key': MapConstants.googleMapsApiKey,
         'components': 'country:in',
+        if (sessionToken.trim().isNotEmpty) 'sessiontoken': sessionToken.trim(),
+        if (hasBias) 'location': '$biasLat,$biasLng',
+        if (hasBias) 'radius': '50000',
       },
     );
     final json = ApiBody.asMap(response.body) ?? {};
@@ -49,7 +78,10 @@ class PlacesService extends GetConnect {
         .toList(growable: false);
   }
 
-  Future<PlaceDetails?> details(String placeId) async {
+  Future<PlaceDetails?> details(
+    String placeId, {
+    String sessionToken = '',
+  }) async {
     final id = placeId.trim();
     if (id.isEmpty) return null;
 
@@ -60,6 +92,7 @@ class PlacesService extends GetConnect {
         'place_id': id,
         'fields': 'formatted_address,geometry',
         'key': MapConstants.googleMapsApiKey,
+        if (sessionToken.trim().isNotEmpty) 'sessiontoken': sessionToken.trim(),
       },
     );
     final json = ApiBody.asMap(response.body) ?? {};

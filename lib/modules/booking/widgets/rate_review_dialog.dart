@@ -87,12 +87,15 @@ class RateReviewDialog extends StatelessWidget {
                   borderRadius: AppDimensions.radiusLarge,
                 ),
                 const SizedBox(height: AppDimensions.paddingLarge),
-                AppButton(
-                  title: AppStrings.submit,
-                  backgroundColor: AppColors.brandBlack,
-                  textColor: AppColors.white,
-                  borderRadius: AppDimensions.radiusLarge,
-                  onPressed: controller.submitReview,
+                Obx(
+                  () => AppButton(
+                    title: AppStrings.submit,
+                    backgroundColor: AppColors.brandBlack,
+                    textColor: AppColors.white,
+                    borderRadius: AppDimensions.radiusLarge,
+                    isLoading: controller.isSubmittingReview.value,
+                    onPressed: controller.submitReview,
+                  ),
                 ),
               ],
             ),

@@ -66,10 +66,13 @@ class RidesController extends GetxController with PageLoadingMixin {
   void openBooking(RideBooking booking) {
     if (booking.isCompleted) {
       if (Get.isRegistered<HomeController>()) {
-        Get.find<HomeController>().activeRide.value = booking;
+        // Never overwrites a live ride: HomeController decides between the
+        // completed/payment screen and the read-only detail page.
+        Get.find<HomeController>().openHistoryRide(booking);
+        return;
       }
       Get.toNamed(
-        AppRoutes.rideCompleted,
+        AppRoutes.bookingDetail,
         arguments: booking,
         preventDuplicates: false,
       );

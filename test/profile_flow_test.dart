@@ -73,7 +73,7 @@ void main() {
     expect(find.text(AppStrings.emailOptional), findsOneWidget);
     expect(find.text(AppStrings.referralCodeOptional), findsOneWidget);
     expect(find.text('9876543210'), findsOneWidget);
-    expect(find.text(AppStrings.fieldPlaceholder), findsWidgets);
+    expect(find.text(AppStrings.hintReferralCode), findsOneWidget);
     expect(tester.takeException(), isNull);
 
     await tester.tap(find.byIcon(Icons.edit_outlined).last);

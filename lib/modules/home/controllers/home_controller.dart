@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:get/get.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_strings.dart';
@@ -12,6 +13,7 @@ import '../../../core/exceptions/api_exception.dart';
 import '../../../core/routes/app_routes.dart';
 import '../../../core/utils/app_utils.dart';
 import '../../../core/utils/page_loading_mixin.dart';
+import '../../../core/utils/phone_call.dart';
 import '../../../core/utils/phone_utils.dart';
 import '../../../core/utils/run_api.dart';
 import '../../../data/models/place_suggestion.dart';
@@ -60,14 +62,12 @@ class _BookingRequest {
     required this.pickup,
     required this.drop,
     required this.vehicleType,
-    required this.paymentMethod,
     required this.couponCode,
   });
 
   final RideLocation pickup;
   final RideLocation drop;
   final String vehicleType;
-  final String paymentMethod;
   final String couponCode;
 }
 
@@ -106,9 +106,10 @@ class HomeController extends GetxController with PageLoadingMixin {
   final isPaying = false.obs;
   final awaitingDriverCash = false.obs;
   final rating = 4.obs;
+  final isSubmittingReview = false.obs;
   final cancelReasons = <SafetyReason>[].obs;
   final cancelReasonId = RideCatalog.cancelReasons.first.id.obs;
-  final unreadCount = 1.obs;
+  final unreadCount = 0.obs;
   final vehicleTypes = <VehicleType>[].obs;
   final reviewController = TextEditingController();
   final driverPosition = Rxn<DriverMapPosition>();
@@ -128,7 +129,13 @@ class HomeController extends GetxController with PageLoadingMixin {
   Worker? _connectionWorker;
   RazorpayCheckout? _rideCheckout;
   bool _resumingRide = false;
-  bool _ratingShown = false;
+
+  /// Ride ids the rating dialog was already auto-opened for.
+  final Set<String> _ratingPrompted = <String>{};
+
+  /// Set while vehicles are loading when a newer quote is needed (e.g. the
+  /// route was edited mid-request) – reloaded once the running one finishes.
+  bool _vehiclesReloadQueued = false;
   String _watchedRideId = '';
   String _userCancellingRideId = '';
   String? _pendingRoute;
@@ -221,7 +228,7 @@ class HomeController extends GetxController with PageLoadingMixin {
   double get gst {
     final ride = liveRide;
     if (ride != null) return ride.gst;
-    return estimatedGst.value ?? 1;
+    return estimatedGst.value ?? 0;
   }
 
   double get cgst {
@@ -272,7 +279,7 @@ class HomeController extends GetxController with PageLoadingMixin {
   double get tripDiscount {
     final ride = liveRide;
     if (ride != null) return ride.discount;
-    return discount > 0 ? discount : RideCatalog.tripDiscount;
+    return discount;
   }
 
   double get totalAmount {
@@ -348,12 +355,75 @@ class HomeController extends GetxController with PageLoadingMixin {
     return AppStrings.distanceSample;
   }
 
-  RideDriver get liveDriver => liveRide?.driver ?? RideCatalog.driver;
+  static const RideDriver _noDriver = RideDriver(
+    name: '',
+    rating: '',
+    phone: '',
+    vehicleNumber: '',
+  );
 
-  String get livePlate {
-    final plate = liveDriver.vehicleNumber.trim();
-    if (plate.isNotEmpty) return plate;
-    return RideCatalog.driver.vehicleNumber;
+  RideDriver get liveDriver => liveRide?.driver ?? _noDriver;
+
+  /// Real plate only – empty when the server has not sent one yet.
+  String get livePlate => liveDriver.vehicleNumber.trim();
+
+  /// Driver position for "Track": live socket GPS first, then the ride's
+  /// stored `currentLocation`, then the driver's last known location.
+  DriverMapPosition? get trackedDriverPosition {
+    final live = driverPosition.value;
+    if (live != null && live.isValid) return live;
+    final ride = liveRide;
+    if (ride == null) return null;
+    if (ride.hasCurrentLocation) {
+      return DriverMapPosition(lat: ride.currentLat!, lng: ride.currentLng!);
+    }
+    final driver = ride.driver;
+    if (driver.hasLocation) {
+      return DriverMapPosition(lat: driver.lat!, lng: driver.lng!);
+    }
+    return null;
+  }
+
+  /// "Track" on the live-ride screen: hands navigation to Google Maps
+  /// (towards the driver before pickup, driver → drop during the trip).
+  Future<void> trackDriver() async {
+    final ride = liveRide;
+    if (ride == null || !ride.isAssigned) return;
+    final driver = trackedDriverPosition;
+    final String route;
+    if (ride.normalizedStatus == 'ongoing') {
+      final drop = ride.drop.hasCoordinates ? ride.drop : this.drop.value;
+      if (!drop.hasCoordinates) {
+        AppUtils.showError(AppStrings.unableToOpenMaps);
+        return;
+      }
+      route = driver == null
+          ? 'destination=${drop.lat},${drop.lng}'
+          : 'origin=${driver.lat},${driver.lng}'
+              '&destination=${drop.lat},${drop.lng}';
+    } else if (driver != null) {
+      route = 'destination=${driver.lat},${driver.lng}';
+    } else {
+      final pickup = ride.pickup.hasCoordinates ? ride.pickup : this.pickup.value;
+      if (!pickup.hasCoordinates) {
+        AppUtils.showError(AppStrings.unableToOpenMaps);
+        return;
+      }
+      AppUtils.showInfo(AppStrings.driverLocationUnavailable);
+      route = 'destination=${pickup.lat},${pickup.lng}';
+    }
+    final uri = Uri.parse(
+      'https://www.google.com/maps/dir/?api=1&$route&travelmode=driving',
+    );
+    try {
+      final launched = await launchUrl(
+        uri,
+        mode: LaunchMode.externalApplication,
+      );
+      if (!launched) AppUtils.showError(AppStrings.unableToOpenMaps);
+    } catch (_) {
+      AppUtils.showError(AppStrings.unableToOpenMaps);
+    }
   }
 
   bool get canCancelLive => liveRide?.canCancel ?? true;
@@ -428,12 +498,19 @@ class HomeController extends GetxController with PageLoadingMixin {
     estimatedDiscount.value = 0;
     rideVehicleOptions.clear();
     estimateDistance.value = '';
-    _loadRideVehicles();
+    // Always re-quote the edited route, even if a load is still running.
+    unawaited(_loadRideVehicles(force: true));
   }
 
-  void applyPickedLocation(LocationPickTarget target, RideLocation location) {
+  /// [isCurrentLocation]: the picker's "use current location" for pickup –
+  /// keeps the home header in current-location mode.
+  void applyPickedLocation(
+    LocationPickTarget target,
+    RideLocation location, {
+    bool isCurrentLocation = false,
+  }) {
     if (target == LocationPickTarget.pickup) {
-      usingCurrentPickup.value = false;
+      usingCurrentPickup.value = isCurrentLocation;
       pickup.value = location;
     } else {
       drop.value = location;
@@ -448,20 +525,28 @@ class HomeController extends GetxController with PageLoadingMixin {
       lat: pickup.value.lat,
       lng: pickup.value.lng,
     );
-    if (kIsWeb || Platform.environment.containsKey('FLUTTER_TEST')) {
-      return;
-    }
+    final location = await currentDeviceLocation();
+    if (location == null || !usingCurrentPickup.value) return;
+    pickup.value = location;
+  }
 
+  /// Device GPS fix resolved to an address ("Current location" + address),
+  /// or null when location is off / denied / unavailable. Shared by the home
+  /// pickup and the location picker's "use current location".
+  Future<RideLocation?> currentDeviceLocation() async {
+    if (kIsWeb || Platform.environment.containsKey('FLUTTER_TEST')) {
+      return null;
+    }
     try {
       final enabled = await Geolocator.isLocationServiceEnabled();
-      if (!enabled) return;
+      if (!enabled) return null;
       var permission = await Geolocator.checkPermission();
       if (permission == LocationPermission.denied) {
         permission = await Geolocator.requestPermission();
       }
       if (permission == LocationPermission.denied ||
           permission == LocationPermission.deniedForever) {
-        return;
+        return null;
       }
 
       final position = await Geolocator.getCurrentPosition(
@@ -470,7 +555,6 @@ class HomeController extends GetxController with PageLoadingMixin {
           timeLimit: Duration(seconds: 10),
         ),
       );
-      if (!usingCurrentPickup.value) return;
 
       PlaceDetails? details;
       if (Get.isRegistered<PlacesService>()) {
@@ -485,15 +569,16 @@ class HomeController extends GetxController with PageLoadingMixin {
               lng: position.longitude,
             )
           : null;
-      if (!usingCurrentPickup.value) return;
 
-      pickup.value = RideLocation(
+      return RideLocation(
         title: AppStrings.currentLocationTitle,
         subtitle: details?.address.trim() ?? '',
         lat: details?.lat ?? position.latitude,
         lng: details?.lng ?? position.longitude,
       );
-    } catch (_) {}
+    } catch (_) {
+      return null;
+    }
   }
 
   void selectCategory(String id) {
@@ -597,21 +682,36 @@ class HomeController extends GetxController with PageLoadingMixin {
 
   Future<void> retryLoadVehicles() => _loadRideVehicles();
 
-  Future<void> _loadRideVehicles() async {
+  /// Quotes vehicles for the current route. With [force] a request that is
+  /// already running is not trusted (its route may be stale): a fresh load is
+  /// queued and runs as soon as the current one finishes.
+  Future<void> _loadRideVehicles({bool force = false}) async {
     if (!Get.isRegistered<RideRepository>()) return;
-    if (isLoadingVehicles.value) return;
+    if (isLoadingVehicles.value) {
+      if (force) _vehiclesReloadQueued = true;
+      return;
+    }
     isLoadingVehicles.value = true;
     vehiclesLoadFailed.value = false;
     rideVehicleOptions.clear();
     estimateDistance.value = '';
+    var reload = false;
     try {
+      final routePickup = pickup.value;
+      final routeDrop = drop.value;
       final result = await runApi(
         () => Get.find<RideRepository>().fetchVehicles(
-          pickup: pickup.value,
-          drop: drop.value,
+          pickup: routePickup,
+          drop: routeDrop,
           category: selectedCategory.title,
         ),
       );
+      // Route edited while this request was in flight → its quote is stale.
+      reload = _vehiclesReloadQueued ||
+          !identical(pickup.value, routePickup) ||
+          !identical(drop.value, routeDrop);
+      _vehiclesReloadQueued = false;
+      if (reload) return;
       if (result == null) {
         vehiclesLoadFailed.value = true;
         return;
@@ -623,6 +723,7 @@ class HomeController extends GetxController with PageLoadingMixin {
     } finally {
       isLoadingVehicles.value = false;
     }
+    if (reload) await _loadRideVehicles();
   }
 
   void _applyRideVehicles(RideVehiclesResult result) {
@@ -832,7 +933,6 @@ class HomeController extends GetxController with PageLoadingMixin {
       pickup: pickup.value,
       drop: drop.value,
       vehicleType: type,
-      paymentMethod: paymentMethod.value,
       couponCode: appliedCoupon.value?.code ?? '',
     );
     await _createBooking(request, fromSearchingScreen: false);
@@ -866,6 +966,9 @@ class HomeController extends GetxController with PageLoadingMixin {
     required bool fromSearchingScreen,
   }) async {
     isConfirmingBooking.value = true;
+    // Payment is chosen only on the Ride Completed screen – a method left
+    // over from the previous ride must never trigger a checkout here.
+    paymentMethod.value = 'cash';
     try {
       RideBooking ride;
       try {
@@ -873,7 +976,7 @@ class HomeController extends GetxController with PageLoadingMixin {
           pickup: request.pickup,
           drop: request.drop,
           vehicleType: request.vehicleType,
-          paymentMethod: request.paymentMethod,
+          paymentMethod: 'cash',
           couponCode: request.couponCode,
         );
       } on ActiveRideExistsException catch (error) {
@@ -893,23 +996,14 @@ class HomeController extends GetxController with PageLoadingMixin {
         return;
       }
       _lastBookingRequest = request;
-      _ratingShown = false;
       awaitingDriverCash.value = false;
       noDriversAvailable.value = false;
       searchProgress.value = AppStrings.searchingProgress();
       activeRide.value = ride;
       watchRide(ride.id);
 
-      // Online/UPI at booking: assignment waits until verify-payment succeeds.
-      final method = RidePaymentOption.normalize(request.paymentMethod);
-      if (method == 'online') {
-        final paid = await _collectRidePayment();
-        if (!paid) {
-          AppUtils.showError(AppStrings.unableToStartPayment);
-          // Still open searching — server holds assignment until paid.
-        }
-      }
-
+      // Rides are always dispatched immediately; nothing is collected at
+      // booking time (the server rejects /pay until the ride is completed).
       if (!fromSearchingScreen && activeRideId == ride.id) {
         _routeForRide(liveRide ?? ride);
       }
@@ -1087,7 +1181,8 @@ class HomeController extends GetxController with PageLoadingMixin {
     activeRide.value = current.copyWith(
       paymentStatus: paymentStatus.trim().toLowerCase(),
     );
-    if (paid) {
+    // Payment only settles a finished trip; never prompt mid-ride.
+    if (paid && current.isCompleted) {
       awaitingDriverCash.value = false;
       _stopPolling();
       _showRatingIfNeeded();
@@ -1146,8 +1241,6 @@ class HomeController extends GetxController with PageLoadingMixin {
       pickup: ride.pickup,
       drop: ride.drop,
       vehicleType: type,
-      paymentMethod:
-          ride.paymentMethod.isNotEmpty ? ride.paymentMethod : 'cash',
       couponCode: ride.couponCode,
     );
   }
@@ -1301,6 +1394,38 @@ class HomeController extends GetxController with PageLoadingMixin {
     );
   }
 
+  /// Ride-history tap on a completed ride. A live ride (or one still
+  /// awaiting payment) is never replaced: the past ride then opens on the
+  /// read-only detail page, which gets the ride as route arguments.
+  void openHistoryRide(RideBooking ride) {
+    if (ride.id.isEmpty) return;
+    final current = liveRide;
+    final busy = current != null &&
+        current.id != ride.id &&
+        (current.isLive || (current.isCompleted && current.isPaymentPending));
+    if (!ride.isCompleted || busy) {
+      Get.toNamed(
+        AppRoutes.bookingDetail,
+        arguments: ride,
+        preventDuplicates: false,
+      );
+      return;
+    }
+    if (ride.isPaymentPending) {
+      // Unpaid: payment screen, watching the ride for the payment result.
+      _completedShown.remove(ride.id);
+      openLiveRide(ride);
+      return;
+    }
+    // Paid: completed screen (Rate & Review unless already rated).
+    if (_watchedRideId.isNotEmpty && _watchedRideId != ride.id) {
+      stopWatching();
+    }
+    activeRide.value = ride;
+    _completedShown.add(ride.id);
+    _navigate(AppRoutes.rideCompleted);
+  }
+
   Future<void> resumeActiveRide() async {
     if (_resumingRide) return;
     _resumingRide = true;
@@ -1343,6 +1468,7 @@ class HomeController extends GetxController with PageLoadingMixin {
     stopWatching();
     activeRide.value = null;
     awaitingDriverCash.value = false;
+    paymentMethod.value = 'cash';
     searchProgress.value = '';
     _userCancellingRideId = '';
     if (keepQuote) return;
@@ -1379,14 +1505,21 @@ class HomeController extends GetxController with PageLoadingMixin {
   void completeRide() {
     final ride = liveRide;
     if (ride != null && !ride.isCompleted) return;
-    Get.toNamed(AppRoutes.rideCompleted);
+    if (ride != null && ride.id.isNotEmpty) {
+      _openCompletedOnce(ride);
+    } else {
+      _navigate(AppRoutes.rideCompleted);
+    }
     unawaited(loadCompletedRide());
   }
 
   Future<void> loadCompletedRide() async {
     final args = Get.arguments;
-    if (args is RideBooking) {
-      activeRide.value = args;
+    if (args is RideBooking && args.id.isNotEmpty) {
+      // Never replace a different live ride with a passed-in one.
+      final current = liveRide;
+      final busy = current != null && current.id != args.id && current.isLive;
+      if (!busy) activeRide.value = args;
     }
     final ride = liveRide;
     final id = ride?.id ?? '';
@@ -1464,7 +1597,18 @@ class HomeController extends GetxController with PageLoadingMixin {
     } catch (_) {}
   }
 
+  /// A completed + paid ride the rider has not rated yet.
+  bool get canRateRide {
+    final ride = liveRide;
+    if (ride == null) return false;
+    return ride.isCompleted && ride.isPaid && !ride.rated;
+  }
+
   void openRateReview() {
+    if (!canRateRide) {
+      if (liveRide?.rated == true) AppUtils.showInfo(AppStrings.alreadyRated);
+      return;
+    }
     if (Get.isDialogOpen == true) return;
     Get.dialog<void>(
       const RateReviewDialog(),
@@ -1472,14 +1616,19 @@ class HomeController extends GetxController with PageLoadingMixin {
     );
   }
 
+  /// Auto-opens the rating dialog at most once per ride, and only for a
+  /// completed, paid, not-yet-rated trip.
   void _showRatingIfNeeded() {
-    if (_ratingShown || !isRidePaid) return;
-    _ratingShown = true;
+    final id = activeRideId;
+    if (id.isEmpty || !canRateRide) return;
+    if (!_ratingPrompted.add(id)) return;
     openRateReview();
   }
 
   Future<void> payNow() async {
     if (isPaying.value || awaitingDriverCash.value) return;
+    final ride = liveRide;
+    if (ride != null && !ride.isCompleted) return;
     if (isRidePaid) {
       openRateReview();
       return;
@@ -1506,6 +1655,8 @@ class HomeController extends GetxController with PageLoadingMixin {
       return method != 'online';
     }
     if (ride.isPaid) return true;
+    // The server only accepts payment for a completed ride.
+    if (!ride.isCompleted) return false;
     final option = selectedPaymentOption;
     if (option != null && !option.available) {
       AppUtils.showError(
@@ -1692,10 +1843,7 @@ class HomeController extends GetxController with PageLoadingMixin {
   }
 
   void callDriver() {
-    final phone = liveDriver.phone.trim();
-    final value =
-        phone.isNotEmpty ? phone : RideCatalog.driver.phone;
-    AppUtils.showInfo('${AppStrings.callingDriver} $value');
+    unawaited(launchDialer(liveDriver.phone));
   }
 
   void triggerSos({String? rideId, bool requireRideId = false}) {
@@ -1843,16 +1991,37 @@ class HomeController extends GetxController with PageLoadingMixin {
   }
 
   Future<void> submitReview() async {
-    final rideId = liveRide?.id ?? '';
-    if (rideId.isNotEmpty && Get.isRegistered<RideRepository>()) {
-      await runApi(
-        () => Get.find<RideRepository>().submitRating(
-          rideId: rideId,
-          stars: rating.value,
-          review: reviewController.text.trim(),
-        ),
-      );
+    if (isSubmittingReview.value) return;
+    final ride = liveRide;
+    final rideId = ride?.id ?? '';
+    if (ride != null && ride.rated) {
+      if (Get.isDialogOpen == true) Get.back();
+      AppUtils.showInfo(AppStrings.alreadyRated);
+      return;
     }
+    if (rideId.isNotEmpty && Get.isRegistered<RideRepository>()) {
+      isSubmittingReview.value = true;
+      try {
+        final result = await runApi(
+          () => Get.find<RideRepository>().submitRating(
+            rideId: rideId,
+            stars: rating.value,
+            review: reviewController.text.trim(),
+          ),
+        );
+        // Failure: runApi already showed the error; keep the dialog open.
+        if (result == null) return;
+      } finally {
+        isSubmittingReview.value = false;
+      }
+      final current = activeRide.value;
+      if (current != null && current.id == rideId) {
+        activeRide.value = current.copyWith(rated: true);
+      }
+    }
+    _ratingPrompted.add(rideId);
+    rating.value = 4;
+    reviewController.clear();
     if (Get.isDialogOpen == true) {
       Get.back();
     }

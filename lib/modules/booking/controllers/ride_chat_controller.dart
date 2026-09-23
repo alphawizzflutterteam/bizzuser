@@ -1,9 +1,13 @@
+import 'dart:async';
+import 'dart:math';
+
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 
 import '../../../core/constants/app_strings.dart';
 import '../../../core/utils/app_utils.dart';
 import '../../../core/utils/page_loading_mixin.dart';
+import '../../../core/utils/phone_call.dart';
 import '../../../core/utils/run_api.dart';
 import '../../../data/models/chat_message.dart';
 import '../../../data/models/ride_booking.dart';
@@ -31,7 +35,19 @@ class RideChatController extends GetxController with PageLoadingMixin {
     return '';
   }
 
-  RideDriver get driver => ride.value?.driver ?? RideCatalog.driver;
+  static final Random _random = Random();
+
+  RideDriver get driver =>
+      ride.value?.driver ??
+      const RideDriver(name: '', rating: '', phone: '', vehicleNumber: '');
+
+  /// One id per outgoing message, shared by the socket send and the REST
+  /// fallback so the server stores it only once.
+  static String _newClientId() {
+    final now = DateTime.now().microsecondsSinceEpoch.toRadixString(36);
+    final salt = _random.nextInt(1 << 32).toRadixString(36);
+    return 'u-$now-$salt';
+  }
 
   @override
   void onInit() {
@@ -110,6 +126,7 @@ class RideChatController extends GetxController with PageLoadingMixin {
       return;
     }
     final id = rideId;
+    final clientId = _newClientId();
     try {
       isSending.value = true;
       // Socket first (with ack). REST only when the ack fails / times out,
@@ -119,10 +136,15 @@ class RideChatController extends GetxController with PageLoadingMixin {
         sent = await Get.find<RideSocketService>().sendChat(
           rideId: id,
           text: text,
+          clientId: clientId,
         );
       }
       sent ??= await runApi(
-        () => Get.find<RideRepository>().sendMessage(rideId: id, text: text),
+        () => Get.find<RideRepository>().sendMessage(
+          rideId: id,
+          text: text,
+          clientId: clientId,
+        ),
       );
       if (sent == null) return;
       messageController.clear();
@@ -141,17 +163,14 @@ class RideChatController extends GetxController with PageLoadingMixin {
 
   void callDriver() {
     final phone = driver.phone.trim();
-    if (phone.isNotEmpty) {
-      AppUtils.showInfo('${AppStrings.callingDriver} $phone');
-      return;
+    if (phone.isEmpty && Get.isRegistered<HomeController>()) {
+      final home = Get.find<HomeController>();
+      if (home.activeRideId.isNotEmpty && home.activeRideId == rideId) {
+        home.callDriver();
+        return;
+      }
     }
-    if (Get.isRegistered<HomeController>()) {
-      Get.find<HomeController>().callDriver();
-      return;
-    }
-    AppUtils.showInfo(
-      '${AppStrings.callingDriver} ${RideCatalog.driver.phone}',
-    );
+    unawaited(launchDialer(phone));
   }
 
   @override

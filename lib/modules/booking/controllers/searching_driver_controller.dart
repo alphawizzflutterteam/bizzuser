@@ -98,8 +98,7 @@ class SearchingDriverBinding extends Bindings {
   @override
   void dependencies() {
     Get.lazyPut<SearchingDriverController>(SearchingDriverController.new);
-    if (!Get.isRegistered<HomeController>()) {
-      Get.lazyPut<HomeController>(HomeController.new, fenix: true);
-    }
+    // HomeController is the single permanent instance from DashboardBinding;
+    // never register a second one here (it would hold a different ride).
   }
 }

@@ -71,6 +71,18 @@ class DateFormatUtils {
     return '${dt.day} ${_months[dt.month - 1]} ${dt.year}, $hour:$minute $period';
   }
 
+  /// `dd MMM yyyy, hh:mm a` in local time, e.g. `05 Mar 2026, 09:07 PM`.
+  static String dateTime(String? raw, {String fallback = ''}) {
+    final dt = parse(raw);
+    if (dt == null) return fallback;
+    final day = dt.day.toString().padLeft(2, '0');
+    final hour12 = dt.hour % 12 == 0 ? 12 : dt.hour % 12;
+    final hour = hour12.toString().padLeft(2, '0');
+    final minute = dt.minute.toString().padLeft(2, '0');
+    final period = dt.hour >= 12 ? 'PM' : 'AM';
+    return '$day ${_months[dt.month - 1]} ${dt.year}, $hour:$minute $period';
+  }
+
   static String ticketDate(String? raw, {String fallback = ''}) {
     final dt = parse(raw);
     if (dt == null) return fallback;

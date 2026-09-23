@@ -45,6 +45,21 @@ class AddressFormController extends GetxController {
   bool _applyingSuggestion = false;
   bool _programmaticMove = false;
 
+  /// Pick mode: the place the rider actually selected (suggestion, recent
+  /// destination, current location, or the existing pickup/drop being
+  /// re-edited). Confirm is only possible with one – typed text is not.
+  final pickedLocation = Rxn<RideLocation>();
+  final isLocating = false.obs;
+  bool _pickedIsCurrent = false;
+
+  /// Bumped by every selection / reverse-geocode; a stale in-flight
+  /// `_resolveFromMap` result is dropped instead of overwriting a newer pick.
+  int _resolveGeneration = 0;
+
+  /// Places Autocomplete session: created on the first keystroke of a search
+  /// and reset after a selection.
+  String _sessionToken = '';
+
   static const labels = [
     (AppStrings.labelHome, 'home'),
     (AppStrings.labelWork, 'work'),
@@ -70,6 +85,13 @@ class AddressFormController extends GetxController {
   String get saveButtonTitle =>
       isLocationPick ? AppStrings.confirmLocation : AppStrings.saveAddress;
 
+  /// Pick mode confirm needs a selected place with real coordinates.
+  bool get canConfirm {
+    if (!isLocationPick) return true;
+    final picked = pickedLocation.value;
+    return picked != null && picked.hasCoordinates;
+  }
+
   bool get canShowMap {
     if (kIsWeb) return false;
     if (Platform.environment.containsKey('FLUTTER_TEST')) return false;
@@ -91,9 +113,8 @@ class AddressFormController extends GetxController {
       _seedFromHome(args.target);
       _label = 'home';
       nameController.text = AppStrings.labelHome;
-      if (addressController.text.trim().isEmpty) {
-        _resolveFromMap(mapLat.value, mapLng.value);
-      }
+      // No reverse-geocode of the default map centre here: an empty address
+      // keeps a made-up pickup/drop from being confirmed.
       if (pickTarget == LocationPickTarget.drop) {
         _loadRecentDestinations();
       }
@@ -117,12 +138,21 @@ class AddressFormController extends GetxController {
     final home = Get.find<HomeController>();
     final current =
         target == LocationPickTarget.pickup ? home.pickup.value : home.drop.value;
-    if (current.isBlank && !current.hasCoordinates) return;
-    if (current.routeLine.trim().isNotEmpty) {
-      addressController.text = current.routeLine;
-    }
-    mapLat.value = current.lat == 0 ? defaultLat : current.lat;
-    mapLng.value = current.lng == 0 ? defaultLng : current.lng;
+    if (!current.hasCoordinates) return;
+    final line = current.routeLine.trim();
+    if (line.isEmpty) return;
+    addressController.text = line;
+    // Re-editing: start from the current address, cursor at the end.
+    searchController.value = TextEditingValue(
+      text: line,
+      selection: TextSelection.collapsed(offset: line.length),
+    );
+    mapLat.value = current.lat;
+    mapLng.value = current.lng;
+    // Same instance: confirming it unchanged does not trigger a re-quote.
+    pickedLocation.value = current;
+    _pickedIsCurrent =
+        target == LocationPickTarget.pickup && home.usingCurrentPickup.value;
   }
 
   void onMapCreated(GoogleMapController controller) {
@@ -146,6 +176,7 @@ class AddressFormController extends GetxController {
   }
 
   Future<void> _resolveFromMap(double lat, double lng) async {
+    final generation = ++_resolveGeneration;
     isResolvingAddress.value = true;
     try {
       PlaceDetails? details;
@@ -158,15 +189,16 @@ class AddressFormController extends GetxController {
       details ??= Get.isRegistered<PlacesRepository>()
           ? await Get.find<PlacesRepository>().reverse(lat: lat, lng: lng)
           : null;
-      if (details == null) return;
-      _applyingSuggestion = true;
+      // A suggestion / newer pin was selected meanwhile: keep that one.
+      if (details == null || generation != _resolveGeneration) return;
       addressController.text = details.address;
       mapLat.value = details.lat;
       mapLng.value = details.lng;
     } catch (_) {
     } finally {
-      _applyingSuggestion = false;
-      isResolvingAddress.value = false;
+      if (generation == _resolveGeneration) {
+        isResolvingAddress.value = false;
+      }
     }
   }
 
@@ -221,17 +253,74 @@ class AddressFormController extends GetxController {
     _debounce?.cancel();
     final query = value.trim();
     if (query.length < 2) {
+      isSearchingPlaces.value = false;
       if (pickTarget == LocationPickTarget.drop) {
-        _loadRecentDestinations();
+        _debounce = Timer(
+          const Duration(milliseconds: 300),
+          _loadRecentDestinations,
+        );
       } else {
         suggestions.clear();
       }
-      isSearchingPlaces.value = false;
       return;
     }
+    if (_sessionToken.isEmpty) _sessionToken = PlacesService.newSessionToken();
     _debounce = Timer(const Duration(milliseconds: 400), () {
       _searchPlaces(query);
     });
+  }
+
+  /// Search field clear button: clears the query and its suggestions.
+  void clearSearch() {
+    _debounce?.cancel();
+    searchController.clear();
+    suggestions.clear();
+    isSearchingPlaces.value = false;
+    _sessionToken = '';
+  }
+
+  /// Location icon: use the device's current location as the picked place.
+  Future<void> useCurrentLocation() async {
+    if (isLocating.value || !Get.isRegistered<HomeController>()) return;
+    AppUtils.hideKeyboard();
+    isLocating.value = true;
+    final generation = ++_resolveGeneration;
+    try {
+      final location = await Get.find<HomeController>().currentDeviceLocation();
+      if (generation != _resolveGeneration) return;
+      if (location == null || !location.hasCoordinates) {
+        AppUtils.showError(AppStrings.currentLocationUnavailable);
+        return;
+      }
+      final address = location.subtitle.trim().isNotEmpty
+          ? location.subtitle.trim()
+          : location.routeLine;
+      addressController.text = address;
+      mapLat.value = location.lat;
+      mapLng.value = location.lng;
+      if (isLocationPick) {
+        final isPickup = pickTarget == LocationPickTarget.pickup;
+        final parsed = RideLocation.fromAddress(address);
+        pickedLocation.value = isPickup
+            ? location
+            : RideLocation(
+                title: parsed.title,
+                subtitle: parsed.subtitle,
+                lat: location.lat,
+                lng: location.lng,
+              );
+        _pickedIsCurrent = isPickup;
+        clearSearch();
+      }
+      _programmaticMove = true;
+      await mapController?.animateCamera(
+        CameraUpdate.newLatLngZoom(LatLng(location.lat, location.lng), 16),
+      );
+    } catch (_) {
+      // Camera animation failure: the location itself is applied.
+    } finally {
+      isLocating.value = false;
+    }
   }
 
   Future<void> _loadRecentDestinations() async {
@@ -239,8 +328,11 @@ class AddressFormController extends GetxController {
       suggestions.clear();
       return;
     }
+    final queryAtStart = searchController.text;
     try {
       final items = await Get.find<RideRepository>().fetchRecentDestinations();
+      // The rider typed meanwhile: keep the newer results.
+      if (searchController.text != queryAtStart) return;
       suggestions.assignAll(
         items
             .map(
@@ -265,7 +357,13 @@ class AddressFormController extends GetxController {
     try {
       List<PlaceSuggestion> items = const [];
       if (Get.isRegistered<PlacesService>()) {
-        items = await Get.find<PlacesService>().autocomplete(query);
+        final bias = _searchBias();
+        items = await Get.find<PlacesService>().autocomplete(
+          query,
+          sessionToken: _sessionToken,
+          biasLat: bias?.lat,
+          biasLng: bias?.lng,
+        );
       }
       if (items.isEmpty && Get.isRegistered<PlacesRepository>()) {
         items = await Get.find<PlacesRepository>().search(query);
@@ -279,31 +377,73 @@ class AddressFormController extends GetxController {
     }
   }
 
+  /// Autocomplete bias point: the place being edited, else the trip pickup
+  /// (current / chosen pickup), else the saved address being edited.
+  RideLocation? _searchBias() {
+    final picked = pickedLocation.value;
+    if (picked != null && picked.hasCoordinates) return picked;
+    if (Get.isRegistered<HomeController>()) {
+      final pickup = Get.find<HomeController>().pickup.value;
+      if (pickup.hasCoordinates) return pickup;
+    }
+    if (isEditing && editing!.lat != 0 && editing!.lng != 0) {
+      return RideLocation(
+        title: '',
+        subtitle: '',
+        lat: editing!.lat,
+        lng: editing!.lng,
+      );
+    }
+    return null;
+  }
+
   Future<void> selectSuggestion(PlaceSuggestion suggestion) async {
     AppUtils.hideKeyboard();
+    _debounce?.cancel();
+    // Invalidate any in-flight reverse geocode so it can't overwrite this.
+    final generation = ++_resolveGeneration;
+    isResolvingAddress.value = false;
     isSearchingPlaces.value = true;
+    _applyingSuggestion = true;
+    PlaceDetails? details;
     try {
-      final details = await _detailsFor(suggestion);
-      suggestions.clear();
-      searchController.clear();
-      if (details == null) {
-        addressController.text = suggestion.description;
+      details = await _detailsFor(suggestion);
+    } catch (_) {
+      details = null;
+    }
+    // The autocomplete session ends with the details lookup.
+    _sessionToken = '';
+    try {
+      if (generation != _resolveGeneration) return;
+      if (details == null || (details.lat == 0 && details.lng == 0)) {
+        // Text and coordinates only change together: keep the previous
+        // selection (if any) and never pair this text with stale coords.
+        AppUtils.showError(AppStrings.placeDetailsFailed);
         return;
       }
-      _applyingSuggestion = true;
+      suggestions.clear();
+      searchController.clear();
       addressController.text = details.address;
       mapLat.value = details.lat;
       mapLng.value = details.lng;
+      if (isLocationPick) {
+        final parsed = RideLocation.fromAddress(details.address);
+        pickedLocation.value = RideLocation(
+          title: parsed.title,
+          subtitle: parsed.subtitle,
+          lat: details.lat,
+          lng: details.lng,
+        );
+        _pickedIsCurrent = false;
+        await _confirmPickedLocation();
+        return;
+      }
       _programmaticMove = true;
       await mapController?.animateCamera(
         CameraUpdate.newLatLngZoom(LatLng(details.lat, details.lng), 16),
       );
-      if (isLocationPick) {
-        await _confirmPickedLocation();
-      }
     } catch (_) {
-      addressController.text = suggestion.description;
-      suggestions.clear();
+      // Camera animation failure: the selection itself is applied.
     } finally {
       _applyingSuggestion = false;
       isSearchingPlaces.value = false;
@@ -322,7 +462,10 @@ class AddressFormController extends GetxController {
     if (Get.isRegistered<PlacesService>()) {
       final places = Get.find<PlacesService>();
       if (suggestion.placeId.isNotEmpty) {
-        final details = await places.details(suggestion.placeId);
+        final details = await places.details(
+          suggestion.placeId,
+          sessionToken: _sessionToken,
+        );
         if (details != null) return details;
       }
       if (suggestion.description.isNotEmpty) {
@@ -339,19 +482,19 @@ class AddressFormController extends GetxController {
 
   Future<void> save() async {
     AppUtils.hideKeyboard();
+    if (isLocationPick) {
+      await _confirmPickedLocation();
+      return;
+    }
+
     final name = nameController.text.trim();
     final address = addressController.text.trim();
-    if (!isLocationPick && name.isEmpty) {
+    if (name.isEmpty) {
       AppUtils.showError(AppStrings.enterAddressName);
       return;
     }
     if (address.isEmpty) {
       AppUtils.showError(AppStrings.enterAddress);
-      return;
-    }
-
-    if (isLocationPick) {
-      await _confirmPickedLocation();
       return;
     }
 
@@ -399,80 +542,25 @@ class AddressFormController extends GetxController {
     }
   }
 
+  /// Pick mode: applies the selected place to the trip. Only a real
+  /// selection counts; typed text alone is never geocoded into a location.
+  /// Picked pickups/drops are not stored as Saved Addresses.
   Future<void> _confirmPickedLocation() async {
     final target = pickTarget;
     if (target == null) return;
-    var address = addressController.text.trim();
-    if (address.isEmpty) {
-      AppUtils.showError(AppStrings.enterAddress);
+    final picked = pickedLocation.value;
+    if (picked == null || !picked.hasCoordinates) {
+      AppUtils.showError(AppStrings.selectLocationFromList);
       return;
     }
-    var lat = mapLat.value;
-    var lng = mapLng.value;
-    if (lat == 0 && lng == 0) {
-      PlaceDetails? details;
-      if (Get.isRegistered<PlacesService>()) {
-        details = await Get.find<PlacesService>().geocode(address);
-      }
-      details ??= Get.isRegistered<PlacesRepository>()
-          ? await Get.find<PlacesRepository>().geocode(address)
-          : null;
-      if (details != null) {
-        address = details.address;
-        lat = details.lat;
-        lng = details.lng;
-        mapLat.value = lat;
-        mapLng.value = lng;
-      }
-    }
-    if (lat == 0 && lng == 0) {
-      AppUtils.showError(AppStrings.enterAddress);
-      return;
-    }
-    final parsed = RideLocation.fromAddress(address);
-    final location = RideLocation(
-      title: parsed.title,
-      subtitle: parsed.subtitle,
-      lat: lat,
-      lng: lng,
-    );
     if (Get.isRegistered<HomeController>()) {
-      Get.find<HomeController>().applyPickedLocation(target, location);
-    }
-    await _savePickedAddress(
-      name: parsed.title.isNotEmpty
-          ? parsed.title
-          : (target == LocationPickTarget.pickup
-                ? AppStrings.pickupLocation
-                : AppStrings.dropLocation),
-      address: address,
-      lat: lat,
-      lng: lng,
-    );
-    Get.back();
-  }
-
-  Future<void> _savePickedAddress({
-    required String name,
-    required String address,
-    required double lat,
-    required double lng,
-  }) async {
-    if (!Get.isRegistered<AddressRepository>()) return;
-    isLoading.value = true;
-    try {
-      await runApi(
-        () => Get.find<AddressRepository>().createAddress(
-          label: 'other',
-          name: name,
-          address: address,
-          lat: lat,
-          lng: lng,
-        ),
+      Get.find<HomeController>().applyPickedLocation(
+        target,
+        picked,
+        isCurrentLocation: _pickedIsCurrent,
       );
-    } finally {
-      isLoading.value = false;
     }
+    Get.back();
   }
 
   @override

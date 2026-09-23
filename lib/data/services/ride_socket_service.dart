@@ -212,6 +212,7 @@ class RideSocketService extends GetxService {
   Future<ChatMessage?> sendChat({
     required String rideId,
     required String text,
+    String clientId = '',
   }) async {
     final id = rideId.trim();
     final message = text.trim();
@@ -230,7 +231,11 @@ class RideSocketService extends GetxService {
         .timeout(chatAckTimeout.inMilliseconds)
         .emitWithAck(
           'chat:send',
-          {'rideId': id, 'text': message},
+          {
+            'rideId': id,
+            'text': message,
+            if (clientId.trim().isNotEmpty) 'clientId': clientId.trim(),
+          },
           ack: ([dynamic first, dynamic second]) {
             if (first != null) {
               // Timeout / transport error.
