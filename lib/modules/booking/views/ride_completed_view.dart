@@ -35,6 +35,17 @@ class _RideCompletedViewState extends State<RideCompletedView> {
   @override
   Widget build(BuildContext context) {
     final controller = Get.find<HomeController>();
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) {
+        if (didPop) return;
+        controller.leaveCompletedRide();
+      },
+      child: _buildScaffold(controller),
+    );
+  }
+
+  Widget _buildScaffold(HomeController controller) {
     return Scaffold(
       backgroundColor: AppColors.white,
       appBar: AppBar(
@@ -43,7 +54,7 @@ class _RideCompletedViewState extends State<RideCompletedView> {
           style: AppTextStyles.heading,
         ),
         leading: IconButton(
-          onPressed: Get.back,
+          onPressed: controller.leaveCompletedRide,
           icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 18),
         ),
       ),

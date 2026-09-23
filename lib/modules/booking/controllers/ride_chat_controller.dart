@@ -61,12 +61,28 @@ class RideChatController extends GetxController with PageLoadingMixin {
           message.rideId != currentRideId) {
         return;
       }
-      final exists = messages.any(
-        (item) => item.id.isNotEmpty && item.id == message.id,
-      );
-      if (exists) return;
-      messages.add(message);
+      _addUnique(message);
     });
+  }
+
+  /// Adds [message] unless a message with the same `_id` is already shown
+  /// (socket echo of our own send, REST + socket, reconnect replays).
+  void _addUnique(ChatMessage message) {
+    if (message.text.isEmpty) return;
+    final id = message.id.trim();
+    if (id.isNotEmpty && messages.any((item) => item.id == id)) return;
+    messages.add(message);
+  }
+
+  List<ChatMessage> _dedupe(List<ChatMessage> items) {
+    final seen = <String>{};
+    final out = <ChatMessage>[];
+    for (final item in items) {
+      final id = item.id.trim();
+      if (id.isNotEmpty && !seen.add(id)) continue;
+      out.add(item);
+    }
+    return out;
   }
 
   Future<void> loadMessages() async {
@@ -76,9 +92,9 @@ class RideChatController extends GetxController with PageLoadingMixin {
       return;
     }
     await runPageLoad(() async {
-      messages.assignAll(
-        await Get.find<RideRepository>().fetchMessages(rideId),
-      );
+      final fetched = await Get.find<RideRepository>().fetchMessages(rideId);
+      // Keep socket messages that arrived while the request was in flight.
+      messages.assignAll(_dedupe([...fetched, ...messages]));
     });
   }
 
@@ -93,26 +109,31 @@ class RideChatController extends GetxController with PageLoadingMixin {
       messageController.clear();
       return;
     }
+    final id = rideId;
     try {
       isSending.value = true;
-      final result = await runApi(
-        () => Get.find<RideRepository>().sendMessage(
-          rideId: rideId,
-          text: text,
-        ),
-      );
-      if (result == null) return;
+      // Socket first (with ack). REST only when the ack fails / times out,
+      // so a message is never sent twice.
+      ChatMessage? sent;
       if (Get.isRegistered<RideSocketService>()) {
-        Get.find<RideSocketService>().sendChat(rideId: rideId, text: text);
-      }
-      if (result.text.isEmpty) {
-        messages.assignAll(
-          await Get.find<RideRepository>().fetchMessages(rideId),
+        sent = await Get.find<RideSocketService>().sendChat(
+          rideId: id,
+          text: text,
         );
-      } else {
-        messages.add(result);
       }
+      sent ??= await runApi(
+        () => Get.find<RideRepository>().sendMessage(rideId: id, text: text),
+      );
+      if (sent == null) return;
       messageController.clear();
+      if (sent.text.isEmpty) {
+        final fetched = await Get.find<RideRepository>().fetchMessages(id);
+        messages.assignAll(_dedupe(fetched));
+      } else {
+        _addUnique(sent);
+      }
+    } catch (_) {
+      // fetchMessages failure after a successful send – message is saved.
     } finally {
       isSending.value = false;
     }

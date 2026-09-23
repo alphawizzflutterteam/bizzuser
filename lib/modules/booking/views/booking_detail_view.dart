@@ -379,13 +379,20 @@ class _TripLocations extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Obx(
-      () => Column(
+    return Obx(() {
+      // Prefer the ride's own addresses (resume / notification after the
+      // booking form was reset), then the booking form.
+      final ride = controller.liveRide;
+      final pickup = ride != null && !ride.pickup.isBlank
+          ? ride.pickup
+          : controller.pickup.value;
+      final drop =
+          ride != null && !ride.drop.isBlank ? ride.drop : controller.drop.value;
+      return Column(
         children: [
           _LocationLine(
             label: AppStrings.pickupLocation,
-            title:
-                '${controller.pickup.value.title}, ${controller.pickup.value.subtitle}',
+            title: pickup.routeLine,
             icon: Icons.radio_button_checked,
             iconColor: AppColors.brandYellow,
             trailing: controller.liveDistance,
@@ -393,14 +400,13 @@ class _TripLocations extends StatelessWidget {
           const SizedBox(height: AppDimensions.paddingSmall),
           _LocationLine(
             label: AppStrings.dropLocation,
-            title:
-                '${controller.drop.value.title}, ${controller.drop.value.subtitle}',
+            title: drop.routeLine,
             icon: Icons.location_on_rounded,
             iconColor: AppColors.brandBlack,
           ),
         ],
-      ),
-    );
+      );
+    });
   }
 }
 

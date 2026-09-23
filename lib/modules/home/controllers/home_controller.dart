@@ -53,6 +53,24 @@ class DriverMapPosition {
   bool get isValid => lat != 0 || lng != 0;
 }
 
+/// Snapshot of the last booking request, used by "Try again" after the
+/// server cancelled the search with "No drivers available".
+class _BookingRequest {
+  const _BookingRequest({
+    required this.pickup,
+    required this.drop,
+    required this.vehicleType,
+    required this.paymentMethod,
+    required this.couponCode,
+  });
+
+  final RideLocation pickup;
+  final RideLocation drop;
+  final String vehicleType;
+  final String paymentMethod;
+  final String couponCode;
+}
+
 class HomeController extends GetxController with PageLoadingMixin {
   final pickup = const RideLocation(
     title: AppStrings.currentLocationTitle,
@@ -94,16 +112,34 @@ class HomeController extends GetxController with PageLoadingMixin {
   final vehicleTypes = <VehicleType>[].obs;
   final reviewController = TextEditingController();
   final driverPosition = Rxn<DriverMapPosition>();
+  final vehiclesLoadFailed = false.obs;
+
+  /// Progress line for the searching screen, fed by `ride:status searching`.
+  final searchProgress = ''.obs;
+
+  /// Search ended with "No drivers available" (system cancel).
+  final noDriversAvailable = false.obs;
 
   Timer? _ridePoll;
   Worker? _statusWorker;
   Worker? _paymentWorker;
   Worker? _locationWorker;
   Worker? _notificationWorker;
+  Worker? _connectionWorker;
   RazorpayCheckout? _rideCheckout;
   bool _resumingRide = false;
-  bool _handlingTerminal = false;
   bool _ratingShown = false;
+  String _watchedRideId = '';
+  String _userCancellingRideId = '';
+  String? _pendingRoute;
+  DateTime? _pendingRouteAt;
+  _BookingRequest? _lastBookingRequest;
+
+  /// Ride ids whose cancel was already handled (toast + navigation).
+  final Set<String> _terminalHandled = <String>{};
+
+  /// Ride ids for which the completed screen was already opened.
+  final Set<String> _completedShown = <String>{};
 
   String get activeRideId => activeRide.value?.id.trim() ?? '';
 
@@ -126,6 +162,9 @@ class HomeController extends GetxController with PageLoadingMixin {
           .map((item) => item.toOption())
           .toList(growable: false);
     }
+    // Live backend: never offer the offline demo catalog (its names are not
+    // valid `vehicleType` values). Demo / test mode keeps it.
+    if (Get.isRegistered<RideRepository>()) return const [];
     return RideCatalog.vehiclesFor(selectedCategoryId.value);
   }
 
@@ -448,10 +487,7 @@ class HomeController extends GetxController with PageLoadingMixin {
   }
 
   void searchRide() {
-    if (drop.value.isBlank) {
-      AppUtils.showError(AppStrings.selectDropLocation);
-      return;
-    }
+    if (!_ensureTripLocations()) return;
     _selectPreferredVehicle();
     Get.toNamed(AppRoutes.vehicleSelect);
     _loadRideVehicles();
@@ -459,16 +495,17 @@ class HomeController extends GetxController with PageLoadingMixin {
 
   void reviewBooking() {
     if (isLoadingVehicles.value) return;
+    if (vehicle == null) {
+      AppUtils.showError(AppStrings.vehiclesLoadFailed);
+      return;
+    }
     _applyQuoteBreakdown(vehicle);
     Get.toNamed(AppRoutes.bookingOverview);
   }
 
   Future<void> applyCoupon(RideCoupon coupon) async {
     if (isApplyingCoupon.value) return;
-    if (drop.value.isBlank) {
-      AppUtils.showError(AppStrings.selectDropLocation);
-      return;
-    }
+    if (!_ensureTripLocations()) return;
     if (!Get.isRegistered<RideRepository>()) {
       _applyLocalCoupon(coupon);
       return;
@@ -537,9 +574,13 @@ class HomeController extends GetxController with PageLoadingMixin {
     AppUtils.showSuccess(AppStrings.couponApplied);
   }
 
+  Future<void> retryLoadVehicles() => _loadRideVehicles();
+
   Future<void> _loadRideVehicles() async {
     if (!Get.isRegistered<RideRepository>()) return;
+    if (isLoadingVehicles.value) return;
     isLoadingVehicles.value = true;
+    vehiclesLoadFailed.value = false;
     rideVehicleOptions.clear();
     estimateDistance.value = '';
     try {
@@ -550,8 +591,14 @@ class HomeController extends GetxController with PageLoadingMixin {
           category: selectedCategory.title,
         ),
       );
-      if (result == null) return;
+      if (result == null) {
+        vehiclesLoadFailed.value = true;
+        return;
+      }
       _applyRideVehicles(result);
+      if (rideVehicleOptions.isEmpty && availableVehicles.isEmpty) {
+        vehiclesLoadFailed.value = true;
+      }
     } finally {
       isLoadingVehicles.value = false;
     }
@@ -708,35 +755,132 @@ class HomeController extends GetxController with PageLoadingMixin {
     return option;
   }
 
+  /// Pickup + drop must both carry real coordinates before any quote/create
+  /// request (no hardcoded fallback city). Returns false and shows a message
+  /// when something is missing.
+  bool _ensureTripLocations() {
+    if (!Get.isRegistered<RideRepository>()) {
+      if (drop.value.isBlank) {
+        AppUtils.showError(AppStrings.selectDropLocation);
+        return false;
+      }
+      return true;
+    }
+    if (!pickup.value.hasCoordinates) {
+      if (usingCurrentPickup.value) {
+        AppUtils.showError(AppStrings.waitingForPickupLocation);
+        unawaited(_loadCurrentPickup());
+      } else {
+        AppUtils.showError(AppStrings.selectPickupLocation);
+      }
+      return false;
+    }
+    if (drop.value.isBlank || !drop.value.hasCoordinates) {
+      AppUtils.showError(AppStrings.selectDropLocation);
+      return false;
+    }
+    return true;
+  }
+
+  /// True when both ends of the trip are usable for a booking request.
+  bool get canSearchRide {
+    if (!Get.isRegistered<RideRepository>()) return !drop.value.isBlank;
+    return pickup.value.hasCoordinates && drop.value.hasCoordinates;
+  }
+
   Future<void> confirmBooking() async {
     if (isConfirmingBooking.value || isEstimating.value) return;
-    if (drop.value.isBlank) {
-      AppUtils.showError(AppStrings.selectDropLocation);
-      return;
-    }
+    if (!_ensureTripLocations()) return;
     if (!Get.isRegistered<RideRepository>()) {
       Get.toNamed(AppRoutes.searchingDriver);
       return;
     }
+    final type = selectedVehicleType.trim();
+    if (vehicle == null || type.isEmpty) {
+      AppUtils.showError(AppStrings.vehiclesLoadFailed);
+      return;
+    }
+    // A live ride already exists locally → resume it instead of re-booking.
+    final current = liveRide;
+    if (current != null && current.id.isNotEmpty && current.isLive) {
+      AppUtils.showInfo(AppStrings.resumingActiveRide);
+      _routeForRide(current);
+      return;
+    }
+    final request = _BookingRequest(
+      pickup: pickup.value,
+      drop: drop.value,
+      vehicleType: type,
+      paymentMethod: paymentMethod.value,
+      couponCode: appliedCoupon.value?.code ?? '',
+    );
+    await _createBooking(request, fromSearchingScreen: false);
+  }
+
+  /// "Try again" on the no-drivers state – re-creates the booking with the
+  /// same selection while staying on the searching screen.
+  Future<void> retrySearch() async {
+    if (isConfirmingBooking.value) return;
+    final request = _lastBookingRequest;
+    if (request == null || !Get.isRegistered<RideRepository>()) {
+      exitSearch();
+      return;
+    }
+    await _createBooking(request, fromSearchingScreen: true);
+  }
+
+  /// Leaves the searching / no-drivers screen back to home.
+  void exitSearch() {
+    noDriversAvailable.value = false;
+    searchProgress.value = '';
+    final ride = liveRide;
+    if (ride != null && !ride.isLive) {
+      _clearActiveRide();
+    }
+    Get.offAllNamed(AppRoutes.home);
+  }
+
+  Future<void> _createBooking(
+    _BookingRequest request, {
+    required bool fromSearchingScreen,
+  }) async {
     isConfirmingBooking.value = true;
     try {
-      final ride = await runApi(
-        () => Get.find<RideRepository>().createRide(
-          pickup: pickup.value,
-          drop: drop.value,
-          vehicleType: selectedVehicleType,
-          paymentMethod: paymentMethod.value,
-          couponCode: appliedCoupon.value?.code ?? '',
-        ),
-      );
-      if (ride == null) return;
+      RideBooking ride;
+      try {
+        ride = await Get.find<RideRepository>().createRide(
+          pickup: request.pickup,
+          drop: request.drop,
+          vehicleType: request.vehicleType,
+          paymentMethod: request.paymentMethod,
+          couponCode: request.couponCode,
+        );
+      } on ActiveRideExistsException catch (error) {
+        AppUtils.showInfo(AppStrings.resumingActiveRide);
+        noDriversAvailable.value = false;
+        await openRideById(error.rideId);
+        return;
+      } on ApiException catch (error) {
+        AppUtils.showError(error.message);
+        return;
+      } catch (_) {
+        AppUtils.showError(AppStrings.somethingWentWrong);
+        return;
+      }
+      if (ride.id.isEmpty) {
+        AppUtils.showError(AppStrings.somethingWentWrong);
+        return;
+      }
+      _lastBookingRequest = request;
       _ratingShown = false;
       awaitingDriverCash.value = false;
+      noDriversAvailable.value = false;
+      searchProgress.value = AppStrings.searchingProgress();
       activeRide.value = ride;
       watchRide(ride.id);
 
       // Online/UPI at booking: assignment waits until verify-payment succeeds.
-      final method = RidePaymentOption.normalize(paymentMethod.value);
+      final method = RidePaymentOption.normalize(request.paymentMethod);
       if (method == 'online') {
         final paid = await _collectRidePayment();
         if (!paid) {
@@ -745,39 +889,51 @@ class HomeController extends GetxController with PageLoadingMixin {
         }
       }
 
-      Get.toNamed(AppRoutes.searchingDriver);
+      if (!fromSearchingScreen && activeRideId == ride.id) {
+        _routeForRide(liveRide ?? ride);
+      }
     } finally {
       isConfirmingBooking.value = false;
     }
   }
 
+  /// Starts watching [rideId] via the socket. Idempotent for the same ride:
+  /// workers are bound once, so re-opening screens never stacks listeners.
   void watchRide(String rideId) {
     final id = rideId.trim();
     if (id.isEmpty) return;
-    _stopPolling();
+    if (_watchedRideId == id) {
+      _syncFallbackPoll();
+      return;
+    }
+    stopWatching();
+    _watchedRideId = id;
     _bindSocket(id);
-    // Socket is primary; HTTP poll is backup only (slower when connected).
-    _startBackupPoll();
+    _syncFallbackPoll();
     unawaited(refreshActiveRide());
   }
 
-  void _startBackupPoll() {
-    _stopPolling();
-    _ridePoll = Timer.periodic(const Duration(seconds: 8), (_) {
-      if (!Get.isRegistered<RideSocketService>()) {
-        unawaited(refreshActiveRide());
-        return;
-      }
-      final socket = Get.find<RideSocketService>();
-      // Poll more often only while searching or socket is down.
-      final searching = liveRide?.isSearching ?? false;
-      if (!socket.isConnected || searching) {
-        unawaited(refreshActiveRide());
-        return;
-      }
-      // Connected + assigned/live: occasional backup sync only.
+  /// REST fallback only while the socket is disconnected (15 s).
+  void _syncFallbackPoll() {
+    final watching = _watchedRideId.isNotEmpty;
+    final connected = Get.isRegistered<RideSocketService>() &&
+        Get.find<RideSocketService>().isConnected.value;
+    if (!watching || connected) {
+      _stopPolling();
+      return;
+    }
+    if (_ridePoll != null) return;
+    _ridePoll = Timer.periodic(const Duration(seconds: 15), (_) {
       unawaited(refreshActiveRide());
     });
+  }
+
+  void _onSocketConnectionChanged(bool connected) {
+    _syncFallbackPoll();
+    // Single catch-up refresh on (re)connect.
+    if (connected && _watchedRideId.isNotEmpty) {
+      unawaited(refreshActiveRide());
+    }
   }
 
   /// Re-join socket room when opening Booking Detail for the live trip.
@@ -789,6 +945,7 @@ class HomeController extends GetxController with PageLoadingMixin {
 
   void stopWatching() {
     _stopPolling();
+    _watchedRideId = '';
     _statusWorker?.dispose();
     _statusWorker = null;
     _paymentWorker?.dispose();
@@ -804,7 +961,6 @@ class HomeController extends GetxController with PageLoadingMixin {
   void _bindSocket(String rideId) {
     if (!Get.isRegistered<RideSocketService>()) return;
     final socket = Get.find<RideSocketService>();
-    socket.connect();
     socket.joinRide(rideId);
     _statusWorker?.dispose();
     _statusWorker = ever<RideStatusEvent?>(socket.lastStatusEvent, (event) {
@@ -812,17 +968,16 @@ class HomeController extends GetxController with PageLoadingMixin {
       _applySocketStatus(event);
     });
     _paymentWorker?.dispose();
-    _paymentWorker = ever<String>(socket.lastPaymentStatus, (status) {
-      if (status.trim().isEmpty) return;
-      _applySocketPayment(status);
-      unawaited(refreshActiveRide());
+    _paymentWorker = ever<RidePaymentEvent?>(socket.lastPaymentEvent, (event) {
+      if (event == null || event.paymentStatus.trim().isEmpty) return;
+      if (event.rideId != activeRideId) return;
+      _applySocketPayment(event.paymentStatus);
     });
     _locationWorker?.dispose();
-    _locationWorker = everAll([socket.lastLat, socket.lastLng], (_) {
-      final lat = socket.lastLat.value;
-      final lng = socket.lastLng.value;
-      if (lat == 0 && lng == 0) return;
-      driverPosition.value = DriverMapPosition(lat: lat, lng: lng);
+    _locationWorker = ever<DriverLocationEvent?>(socket.lastLocation, (loc) {
+      if (loc == null || !loc.isValid || loc.rideId != activeRideId) return;
+      // One observable update per GPS sample (no lat/lng half-updates).
+      driverPosition.value = DriverMapPosition(lat: loc.lat, lng: loc.lng);
     });
   }
 
@@ -830,42 +985,78 @@ class HomeController extends GetxController with PageLoadingMixin {
     final current = activeRide.value;
     if (current == null || current.id != event.rideId) return;
 
-    final status = event.status.trim().toLowerCase();
-    RideBookingStatus bucket = current.status;
-    if (status.contains('cancel')) {
+    final status = event.normalizedStatus;
+    var bucket = RideBookingStatus.ongoing;
+    if (status == 'cancelled') {
       bucket = RideBookingStatus.cancelled;
-    } else if (status.contains('complete')) {
+    } else if (status == 'completed') {
       bucket = RideBookingStatus.completed;
-    } else {
-      bucket = RideBookingStatus.ongoing;
+    }
+
+    RideDriver? driver;
+    if (status == 'accepted') {
+      final parsed = RideDriver.fromJson(event.driver, vehicle: event.vehicle);
+      if (parsed.hasName || parsed.vehicleNumber.isNotEmpty) driver = parsed;
+    } else if (status == 'searching') {
+      // Driver cancelled after accept → server re-dispatches.
+      driver = const RideDriver(
+        name: '',
+        rating: '',
+        phone: '',
+        vehicleNumber: '',
+      );
+      driverPosition.value = null;
     }
 
     final otp = event.otp.trim().isNotEmpty ? event.otp.trim() : current.otp;
-    activeRide.value = current.copyWith(
+    final next = current.copyWith(
       status: bucket,
-      rawStatus: event.status,
+      rawStatus: status,
       statusLabel: _labelForRawStatus(status),
       otp: otp,
+      driver: driver,
       paymentStatus: event.paymentStatus.isNotEmpty
-          ? event.paymentStatus
+          ? event.paymentStatus.toLowerCase()
           : current.paymentStatus,
-      cancelReason: event.reason.isNotEmpty ? event.reason : current.cancelReason,
+      cancelReason:
+          event.reason.isNotEmpty ? event.reason : current.cancelReason,
       total: event.fare ?? current.total,
     );
+    activeRide.value = next;
 
-    // On accept: re-join ride room and pull full driver/vehicle from REST.
-    if (status == 'accepted' || status == 'arrived' || status == 'ongoing') {
-      if (Get.isRegistered<RideSocketService>()) {
-        Get.find<RideSocketService>().joinRide(event.rideId);
-      }
-      unawaited(refreshActiveRide());
-    } else if (status == 'searching') {
-      // Keep searching UI; occasional REST backup is enough.
-    } else if (status == 'completed' || status == 'cancelled') {
-      unawaited(refreshActiveRide());
+    switch (status) {
+      case 'searching':
+        searchProgress.value = AppStrings.searchingProgress(
+          radiusKm: event.radiusKm,
+          driversNotified: event.driversNotified,
+        );
+        if (current.isAssigned) {
+          // Driver dropped the trip – back to the searching screen.
+          AppUtils.showInfo(AppStrings.searchingForDriver);
+          _routeForRide(next);
+        }
+        break;
+      case 'accepted':
+        searchProgress.value = '';
+        // Payload normally carries driver + vehicle + otp; only pull REST
+        // when something essential is missing.
+        if (driver == null || !driver.hasName || otp.isEmpty) {
+          unawaited(refreshActiveRide());
+        }
+        _routeForRide(next);
+        break;
+      case 'arrived':
+      case 'ongoing':
+        if (!current.driver.hasName) {
+          unawaited(refreshActiveRide());
+        }
+        _routeForRide(next);
+        break;
+      default:
+        break;
     }
 
-    _handleTerminalStatus(activeRide.value!);
+    _handleTerminalStatus(next, cancelledBy: event.cancelledBy);
   }
 
   void _applySocketPayment(String paymentStatus) {
@@ -877,6 +1068,7 @@ class HomeController extends GetxController with PageLoadingMixin {
     );
     if (paid) {
       awaitingDriverCash.value = false;
+      _stopPolling();
       _showRatingIfNeeded();
     }
   }
@@ -910,36 +1102,182 @@ class HomeController extends GetxController with PageLoadingMixin {
     if (id.isEmpty || !Get.isRegistered<RideRepository>()) return;
     try {
       final ride = await Get.find<RideRepository>().fetchRide(id);
+      // Ride changed / cleared while the request was in flight.
+      if (activeRideId != id || ride.id != id) return;
       activeRide.value = ride;
+      if (ride.isSearching && searchProgress.value.isEmpty) {
+        searchProgress.value = AppStrings.searchingProgress();
+      }
       _handleTerminalStatus(ride);
     } catch (_) {}
   }
 
-  void _handleTerminalStatus(RideBooking ride) {
-    if (_handlingTerminal) return;
+  /// Rebuilds a booking request from a server ride (e.g. after the app was
+  /// restarted mid-search), so "Try again" keeps the same selection.
+  static _BookingRequest? _requestFromRide(RideBooking ride) {
+    final type = ride.vehicleType.trim();
+    if (type.isEmpty ||
+        !ride.pickup.hasCoordinates ||
+        !ride.drop.hasCoordinates) {
+      return null;
+    }
+    return _BookingRequest(
+      pickup: ride.pickup,
+      drop: ride.drop,
+      vehicleType: type,
+      paymentMethod:
+          ride.paymentMethod.isNotEmpty ? ride.paymentMethod : 'cash',
+      couponCode: ride.couponCode,
+    );
+  }
+
+  static bool _isNoDriversReason(String reason) {
+    return reason.trim().toLowerCase().contains('no driver');
+  }
+
+  void _handleTerminalStatus(RideBooking ride, {String cancelledBy = ''}) {
+    final id = ride.id;
+    if (id.isEmpty) return;
     if (ride.isCancelled) {
-      _handlingTerminal = true;
-      stopWatching();
-      AppUtils.showInfo(AppStrings.rideCancelled);
+      // User-initiated cancel is finished by submitCancelRide / cancelSearch.
+      if (_userCancellingRideId == id) return;
+      if (!_terminalHandled.add(id)) return;
+      final by = cancelledBy.trim().toLowerCase();
+      final noDrivers = _isNoDriversReason(ride.cancelReason) ||
+          (by == 'system' && !ride.driver.hasName);
+      if (noDrivers) {
+        _lastBookingRequest = _requestFromRide(ride) ?? _lastBookingRequest;
+      }
+      _clearActiveRide(keepQuote: noDrivers);
+      if (noDrivers) {
+        noDriversAvailable.value = true;
+        if (Get.currentRoute != AppRoutes.searchingDriver) {
+          AppUtils.showInfo(AppStrings.noDriversAvailableBody);
+          if (Get.currentRoute != AppRoutes.home) {
+            Get.offAllNamed(AppRoutes.home);
+          }
+          noDriversAvailable.value = false;
+        }
+        return;
+      }
+      AppUtils.showInfo(
+        ride.cancelReason.isNotEmpty
+            ? '${AppStrings.rideCancelled}: ${ride.cancelReason}'
+            : AppStrings.rideCancelled,
+      );
       Get.offAllNamed(AppRoutes.home);
-      activeRide.value = null;
-      _handlingTerminal = false;
       return;
     }
     if (ride.isCompleted) {
-      _handlingTerminal = true;
-      if (Get.currentRoute != AppRoutes.rideCompleted) {
-        Get.toNamed(AppRoutes.rideCompleted);
-      }
+      _openCompletedOnce(ride);
       if (ride.isPaid) {
-        stopWatching();
+        _stopPolling();
         if (awaitingDriverCash.value) {
           awaitingDriverCash.value = false;
           _showRatingIfNeeded();
         }
       }
-      _handlingTerminal = false;
     }
+  }
+
+  /// Pushes the completed / payment screen at most once per ride id, so a
+  /// user who navigated away is never dragged back by later events/polls.
+  void _openCompletedOnce(RideBooking ride) {
+    if (!_completedShown.add(ride.id)) return;
+    _navigate(AppRoutes.rideCompleted);
+  }
+
+  /// Single navigation entry point for live-ride screens. Guards against
+  /// double pushes (resume vs. searching controller vs. socket events).
+  void _navigate(String route) {
+    final now = DateTime.now();
+    final pending = _pendingRoute;
+    final pendingAt = _pendingRouteAt;
+    if (pending == route &&
+        pendingAt != null &&
+        now.difference(pendingAt) < const Duration(milliseconds: 800)) {
+      return;
+    }
+    final current = Get.currentRoute;
+    if (current == route) return;
+    _pendingRoute = route;
+    _pendingRouteAt = now;
+    final replace = (route == AppRoutes.bookingDetail &&
+            current == AppRoutes.searchingDriver) ||
+        (route == AppRoutes.searchingDriver &&
+            current == AppRoutes.bookingDetail) ||
+        (route == AppRoutes.rideCompleted &&
+            current == AppRoutes.bookingDetail);
+    if (replace) {
+      Get.offNamed(route);
+    } else {
+      Get.toNamed(route);
+    }
+  }
+
+  /// Routes to the screen matching [ride]'s state (searching, live trip,
+  /// completed + unpaid). Used by resume, notifications and socket events.
+  void _routeForRide(RideBooking ride) {
+    final route = Get.currentRoute;
+    if (ride.isSearching) {
+      if (route == AppRoutes.searchingDriver) return;
+      _navigate(AppRoutes.searchingDriver);
+      return;
+    }
+    if (ride.isAssigned) {
+      const liveRoutes = {
+        AppRoutes.bookingDetail,
+        AppRoutes.rideChat,
+        AppRoutes.sosHelp,
+        AppRoutes.rideCompleted,
+      };
+      if (liveRoutes.contains(route)) return;
+      _navigate(AppRoutes.bookingDetail);
+      return;
+    }
+    if (ride.isCompleted && ride.isPaymentPending) {
+      _openCompletedOnce(ride);
+    }
+  }
+
+  /// Called by the searching screen when the ride became assigned.
+  void showAssignedRide() {
+    final ride = liveRide;
+    if (ride == null || !ride.isAssigned) return;
+    _routeForRide(ride);
+  }
+
+  /// Makes [ride] the live ride, starts watching and routes to it.
+  void openLiveRide(RideBooking ride) {
+    if (ride.id.isEmpty) return;
+    noDriversAvailable.value = false;
+    activeRide.value = ride;
+    watchRide(ride.id);
+    _routeForRide(ride);
+  }
+
+  /// Loads a ride by id (notification tap / 409 conflict) and routes to it
+  /// instead of showing placeholder data.
+  Future<void> openRideById(String rideId) async {
+    final id = rideId.trim();
+    if (id.isEmpty) return;
+    if (!Get.isRegistered<RideRepository>()) return;
+    final ride = await runApi(() => Get.find<RideRepository>().fetchRide(id));
+    if (ride == null || ride.id.isEmpty) return;
+    if (ride.isLive || (ride.isCompleted && ride.isPaymentPending)) {
+      if (ride.isCompleted) {
+        // Explicit request: show the payment screen even if shown before.
+        _completedShown.remove(ride.id);
+      }
+      openLiveRide(ride);
+      return;
+    }
+    // Finished ride → read-only detail page.
+    Get.toNamed(
+      AppRoutes.bookingDetail,
+      arguments: ride,
+      preventDuplicates: false,
+    );
   }
 
   Future<void> resumeActiveRide() async {
@@ -947,46 +1285,69 @@ class HomeController extends GetxController with PageLoadingMixin {
     _resumingRide = true;
     try {
       if (Get.isRegistered<RideSocketService>()) {
-        Get.find<RideSocketService>().connect(force: true);
+        Get.find<RideSocketService>().ensureConnected();
       }
       if (!Get.isRegistered<RideRepository>()) return;
-      final ride = await runApi(() => Get.find<RideRepository>().fetchActive());
+      RideBooking? ride;
+      try {
+        ride = await Get.find<RideRepository>().fetchActive();
+      } catch (_) {
+        // Offline: keep the current state; the fallback poll takes over.
+        return;
+      }
       if (ride == null) {
-        final id = activeRideId;
-        if (id.isNotEmpty && Get.isRegistered<RideRepository>()) {
-          try {
-            final detail = await Get.find<RideRepository>().fetchRide(id);
-            if (detail.isLive ||
-                (detail.isCompleted && detail.isPaymentPending)) {
-              activeRide.value = detail;
-              watchRide(detail.id);
-            }
-          } catch (_) {}
-        }
+        // Nothing active on the server – resolve what we hold locally once
+        // (it may have completed / been cancelled while in background).
+        if (activeRideId.isNotEmpty) await refreshActiveRide();
         return;
       }
-      if (!ride.isLive && !(ride.isCompleted && ride.isPaymentPending)) {
+      final resumable =
+          ride.isLive || (ride.isCompleted && ride.isPaymentPending);
+      if (!resumable) return;
+      if (activeRideId == ride.id) {
+        activeRide.value = ride;
+        watchRide(ride.id);
+        _routeForRide(ride);
         return;
       }
-      activeRide.value = ride;
-      watchRide(ride.id);
-      final route = Get.currentRoute;
-      if (ride.isSearching && route != AppRoutes.searchingDriver) {
-        Get.toNamed(AppRoutes.searchingDriver);
-      } else if (ride.isAssigned &&
-          route != AppRoutes.bookingDetail &&
-          route != AppRoutes.rideChat &&
-          route != AppRoutes.sosHelp &&
-          route != AppRoutes.rideCompleted) {
-        Get.toNamed(AppRoutes.bookingDetail);
-      } else if (ride.isCompleted &&
-          ride.isPaymentPending &&
-          route != AppRoutes.rideCompleted) {
-        Get.toNamed(AppRoutes.rideCompleted);
-      }
+      openLiveRide(ride);
     } finally {
       _resumingRide = false;
     }
+  }
+
+  /// Clears every trace of the finished ride so the next booking starts
+  /// clean (no stale fares, OTP, driver or socket state).
+  void _clearActiveRide({bool keepQuote = false}) {
+    stopWatching();
+    activeRide.value = null;
+    awaitingDriverCash.value = false;
+    searchProgress.value = '';
+    _userCancellingRideId = '';
+    if (keepQuote) return;
+    appliedCoupon.value = null;
+    couponCode.value = '';
+    estimatedDiscount.value = 0;
+    estimatedBaseFare.value = null;
+    estimatedGst.value = null;
+    estimatedCgst.value = null;
+    estimatedSgst.value = null;
+    estimatedIgst.value = null;
+    estimatedDistanceFare.value = null;
+    estimatedWaitingCharge.value = null;
+    estimatedTotal.value = null;
+    estimateVehicles.clear();
+  }
+
+  /// Back from the completed screen: once paid, the ride is done locally.
+  void leaveCompletedRide() {
+    final ride = liveRide;
+    if (ride != null && ride.isCompleted && ride.isPaid) {
+      _clearActiveRide();
+      Get.offAllNamed(AppRoutes.home);
+      return;
+    }
+    Get.back();
   }
 
   void completeRide() {
@@ -1005,8 +1366,11 @@ class HomeController extends GetxController with PageLoadingMixin {
     final id = ride?.id ?? '';
     _syncPaymentSelection();
     if (id.isEmpty || !Get.isRegistered<RideRepository>()) return;
+    // Already on the completed screen for this ride – never push it again.
+    _completedShown.add(id);
     try {
       final fetched = await Get.find<RideRepository>().fetchRide(id);
+      if (activeRideId != id) return;
       activeRide.value = fetched;
       _syncPaymentSelection();
       if (fetched.isCompleted && fetched.isPaymentPending) {
@@ -1321,22 +1685,108 @@ class HomeController extends GetxController with PageLoadingMixin {
       Get.offAllNamed(AppRoutes.home);
       return;
     }
+    final reason = _selectedCancelReason();
+    await _cancelActiveRide(
+      ride,
+      reasonId: reason?.id ?? cancelReasonId.value,
+      reasonLabel: reason?.title ?? '',
+    );
+  }
+
+  SafetyReason? _selectedCancelReason() {
+    for (final item in cancelReasons) {
+      if (item.id == cancelReasonId.value) return item;
+    }
+    return cancelReasons.isEmpty ? null : cancelReasons.first;
+  }
+
+  Future<bool> _cancelActiveRide(
+    RideBooking ride, {
+    required String reasonId,
+    String reasonLabel = '',
+  }) async {
+    if (isCancellingRide.value) return false;
     isCancellingRide.value = true;
+    _userCancellingRideId = ride.id;
     try {
       final result = await runApi(
         () => Get.find<RideRepository>().cancelRide(
           id: ride.id,
-          reasonId: cancelReasonId.value,
+          reasonId: reasonId,
+          reason: reasonLabel,
         ),
       );
-      if (result == null) return;
-      stopWatching();
-      activeRide.value = result;
+      if (result == null) {
+        _userCancellingRideId = '';
+        // Ride may have moved on meanwhile (accepted / cancelled by server).
+        unawaited(refreshActiveRide());
+        return false;
+      }
+      _terminalHandled.add(ride.id);
+      _clearActiveRide();
+      noDriversAvailable.value = false;
       AppUtils.showInfo(AppStrings.rideCancelled);
       Get.offAllNamed(AppRoutes.home);
+      return true;
     } finally {
       isCancellingRide.value = false;
     }
+  }
+
+  /// "Cancel search" on the searching screen (button or back gesture).
+  /// Confirms first, then cancels with a default reason from the server list.
+  Future<void> cancelSearch() async {
+    if (isCancellingRide.value) return;
+    final ride = liveRide;
+    if (ride == null ||
+        ride.id.isEmpty ||
+        !Get.isRegistered<RideRepository>()) {
+      exitSearch();
+      return;
+    }
+    if (!ride.isSearching) {
+      // Driver already assigned – use the regular cancel flow.
+      _routeForRide(ride);
+      return;
+    }
+    final confirmed = await Get.dialog<bool>(
+      AlertDialog(
+        title: const Text(AppStrings.cancelSearchTitle),
+        content: const Text(AppStrings.cancelSearchBody),
+        actions: [
+          TextButton(
+            onPressed: () => Get.back(result: false),
+            child: const Text(AppStrings.keepSearching),
+          ),
+          TextButton(
+            onPressed: () => Get.back(result: true),
+            child: const Text(
+              AppStrings.yesCancel,
+              style: TextStyle(color: AppColors.error),
+            ),
+          ),
+        ],
+      ),
+      barrierColor: AppColors.overlay,
+    );
+    if (confirmed != true) return;
+    final current = liveRide;
+    if (current == null || current.id != ride.id) return;
+    await _loadCancelReasons();
+    final reason = _defaultSearchCancelReason();
+    await _cancelActiveRide(
+      current,
+      reasonId: reason?.id ?? '',
+      reasonLabel: reason?.title ?? AppStrings.changeInMyPlans,
+    );
+  }
+
+  SafetyReason? _defaultSearchCancelReason() {
+    if (cancelReasons.isEmpty) return null;
+    for (final item in cancelReasons) {
+      if (item.title.toLowerCase().contains('plan')) return item;
+    }
+    return cancelReasons.first;
   }
 
   void cancelRide() {
@@ -1363,7 +1813,7 @@ class HomeController extends GetxController with PageLoadingMixin {
       Get.back();
     }
     AppUtils.showSuccess(AppStrings.reviewSubmitted);
-    activeRide.value = null;
+    _clearActiveRide();
     Get.offAllNamed(AppRoutes.home);
   }
 
@@ -1421,10 +1871,16 @@ class HomeController extends GetxController with PageLoadingMixin {
 
   void _bindNotificationSocket() {
     if (!Get.isRegistered<RideSocketService>()) return;
+    final socket = Get.find<RideSocketService>();
     _notificationWorker?.dispose();
     _notificationWorker = ever<int>(
-      Get.find<RideSocketService>().notificationTick,
+      socket.notificationTick,
       (_) => unawaited(_loadUnreadCount()),
+    );
+    _connectionWorker?.dispose();
+    _connectionWorker = ever<bool>(
+      socket.isConnected,
+      _onSocketConnectionChanged,
     );
   }
 
@@ -1479,6 +1935,8 @@ class HomeController extends GetxController with PageLoadingMixin {
     stopWatching();
     _notificationWorker?.dispose();
     _notificationWorker = null;
+    _connectionWorker?.dispose();
+    _connectionWorker = null;
     _rideCheckout?.dispose();
     _rideCheckout = null;
     reviewController.dispose();

@@ -461,4 +461,42 @@ class AppStrings {
   static const String unsafeDriving = 'Unsafe Driving';
   static const String safetyConcerns = 'Safety concerns';
   static const String otherReason = 'Other reason';
+
+  // Ride flow
+  static const String selectPickupLocation = 'Please select pickup location';
+  static const String waitingForPickupLocation =
+      'Fetching your current location. Please wait or pick a pickup point.';
+  static const String cancelSearch = 'Cancel search';
+  static const String cancelSearchTitle = 'Cancel ride search?';
+  static const String cancelSearchBody =
+      'We are still looking for a driver. Do you want to cancel this booking?';
+  static const String keepSearching = 'Keep searching';
+  static const String yesCancel = 'Yes, cancel';
+  static const String searchCancelledReason = 'Cancelled while searching';
+  static const String noDriversAvailableTitle = 'No drivers available';
+  static const String noDriversAvailableBody =
+      'All drivers nearby are busy right now. Please try again in a moment.';
+  static const String tryAgain = 'Try again';
+  static const String backToHome = 'Back to home';
+  static const String vehiclesLoadFailed =
+      'Could not load vehicles for this route.';
+  static const String resumingActiveRide =
+      'You already have an active ride. Resuming it.';
+  static const String loadingRide = 'Loading ride...';
+  static String searchingProgress({
+    double? radiusKm,
+    int? driversNotified,
+  }) {
+    final km = radiusKm == null
+        ? ''
+        : (radiusKm % 1 == 0
+            ? radiusKm.toStringAsFixed(0)
+            : radiusKm.toStringAsFixed(1));
+    final base = km.isEmpty
+        ? 'Looking for drivers nearby…'
+        : 'Looking for drivers within $km km…';
+    if (driversNotified == null || driversNotified <= 0) return base;
+    final label = driversNotified == 1 ? 'driver' : 'drivers';
+    return '$base $driversNotified $label notified';
+  }
 }

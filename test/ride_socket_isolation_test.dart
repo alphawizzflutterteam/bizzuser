@@ -35,6 +35,10 @@ void main() {
         }),
         'nested1',
       );
+      expect(
+        RideSocketService.rideIdFrom({'ride': 'plainId'}),
+        'plainId',
+      );
       expect(RideSocketService.rideIdFrom({}), '');
     });
 

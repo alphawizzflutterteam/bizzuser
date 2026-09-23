@@ -33,9 +33,11 @@ class RideLocation {
     return '$title, $cityLabel';
   }
 
+  /// Request payload. There is no implicit default city: callers must make
+  /// sure [hasCoordinates] is true (the backend rejects missing lat/lng).
   Map<String, dynamic> toApiJson({
-    double fallbackLat = 22.7533,
-    double fallbackLng = 75.8937,
+    double? fallbackLat,
+    double? fallbackLng,
   }) {
     return {
       'address': routeLine,

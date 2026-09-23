@@ -255,7 +255,15 @@ class PushNotificationService extends GetxService {
 
     if (type == 'booking' || rideId.isNotEmpty) {
       if (rideId.isNotEmpty) {
-        Get.toNamed(AppRoutes.bookingDetail, arguments: rideId);
+        // Load the real ride (live → live screens, finished → detail page)
+        // instead of opening Booking Detail with placeholder driver data.
+        if (Get.isRegistered<HomeController>()) {
+          Get.find<HomeController>().openRideById(rideId);
+          return;
+        }
+        if (Get.currentRoute != AppRoutes.home) {
+          Get.offAllNamed(AppRoutes.home);
+        }
         return;
       }
       if (Get.currentRoute != AppRoutes.home) {

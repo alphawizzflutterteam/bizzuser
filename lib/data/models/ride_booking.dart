@@ -39,6 +39,7 @@ class RideBooking {
     this.paymentMethod = '',
     this.paymentStatus = '',
     this.paymentOptions = const [],
+    this.pendingPayment = false,
   });
 
   final String id;
@@ -72,6 +73,9 @@ class RideBooking {
   final String paymentStatus;
   final List<RidePaymentOption> paymentOptions;
 
+  /// `GET /user/rides/active` flag: completed ride whose payment is still due.
+  final bool pendingPayment;
+
   String get bookingCode => displayId.isNotEmpty ? displayId : id;
 
   String get normalizedStatus => rawStatus.trim().toLowerCase();
@@ -102,6 +106,7 @@ class RideBooking {
   bool get isPaymentPending {
     final value = paymentStatus.trim().toLowerCase();
     if (value == 'paid') return false;
+    if (pendingPayment) return true;
     if (value == 'pending' || value.isEmpty) return isCompleted;
     return false;
   }
@@ -181,6 +186,7 @@ class RideBooking {
 
   RideBooking copyWith({
     RideBookingStatus? status,
+    RideDriver? driver,
     String? statusLabel,
     String? otp,
     String? paymentMethod,
@@ -198,7 +204,7 @@ class RideBooking {
       pickup: pickup,
       drop: drop,
       distance: distance,
-      driver: driver,
+      driver: driver ?? this.driver,
       vehicleLabel: vehicleLabel,
       displayId: displayId,
       otp: otp ?? this.otp,
@@ -222,6 +228,7 @@ class RideBooking {
       paymentMethod: paymentMethod ?? this.paymentMethod,
       paymentStatus: paymentStatus ?? this.paymentStatus,
       paymentOptions: paymentOptions ?? this.paymentOptions,
+      pendingPayment: pendingPayment,
     );
   }
 
@@ -304,6 +311,8 @@ class RideBooking {
       ),
       paymentStatus: (data['paymentStatus'] ?? '').toString().trim().toLowerCase(),
       paymentOptions: options,
+      pendingPayment:
+          data['pendingPayment'] == true || root['pendingPayment'] == true,
     );
   }
 

@@ -83,9 +83,34 @@ class _VehicleSelectSheet extends GetView<HomeController> {
                 child: AppPageLoader(),
               );
             }
+            final options = controller.availableVehicles;
+            if (options.isEmpty && controller.vehiclesLoadFailed.value) {
+              return Padding(
+                padding: const EdgeInsets.symmetric(vertical: 24),
+                child: Column(
+                  children: [
+                    AppText(
+                      text: AppStrings.vehiclesLoadFailed,
+                      textAlign: TextAlign.center,
+                      style: AppTextStyles.body.copyWith(
+                        color: AppColors.textSecondary,
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    AppButton(
+                      title: AppStrings.retry,
+                      backgroundColor: AppColors.brandBlack,
+                      textColor: AppColors.white,
+                      borderRadius: AppDimensions.searchButtonRadius,
+                      onPressed: controller.retryLoadVehicles,
+                    ),
+                  ],
+                ),
+              );
+            }
             return Column(
               children: [
-                for (final option in controller.availableVehicles) ...[
+                for (final option in options) ...[
                   _VehicleOptionTile(
                     option: option,
                     selected: controller.vehicle?.id == option.id,
@@ -98,7 +123,7 @@ class _VehicleSelectSheet extends GetView<HomeController> {
                   backgroundColor: AppColors.brandBlack,
                   textColor: AppColors.white,
                   borderRadius: AppDimensions.searchButtonRadius,
-                  onPressed: controller.reviewBooking,
+                  onPressed: options.isEmpty ? null : controller.reviewBooking,
                 ),
               ],
             );

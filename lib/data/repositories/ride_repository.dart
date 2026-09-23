@@ -1,4 +1,6 @@
 import '../../core/constants/api_constants.dart';
+import '../../core/constants/app_strings.dart';
+import '../../core/exceptions/api_exception.dart';
 import '../../core/utils/api_body.dart';
 import '../models/chat_message.dart';
 import '../models/ride_booking.dart';
@@ -11,8 +13,32 @@ import '../models/safety_models.dart';
 import 'base_repository.dart';
 import 'ride_catalog.dart';
 
+/// `POST /user/rides` → 409 "You already have an active ride".
+/// [rideId] is the existing ride (`data.rideId`) the app should resume.
+class ActiveRideExistsException extends ApiException {
+  const ActiveRideExistsException(
+    super.message, {
+    required this.rideId,
+    super.statusCode,
+    super.data,
+  });
+
+  final String rideId;
+}
+
 class RideRepository extends BaseRepository {
   const RideRepository(super.apiService);
+
+  /// Backend requires real coordinates for both ends – never send a default
+  /// city as a silent fallback.
+  static void _requireCoordinates(RideLocation pickup, RideLocation drop) {
+    if (!pickup.hasCoordinates) {
+      throw const ApiException(AppStrings.selectPickupLocation);
+    }
+    if (!drop.hasCoordinates) {
+      throw const ApiException(AppStrings.selectDropLocation);
+    }
+  }
 
   Future<List<RideBooking>> fetchRides({required String status}) async {
     final json = await apiService.getJson(
@@ -76,12 +102,10 @@ class RideRepository extends BaseRepository {
     required RideLocation drop,
     required String category,
   }) async {
+    _requireCoordinates(pickup, drop);
     final json = await apiService.postJson(ApiConstants.rideVehicles, {
       'pickup': pickup.toApiJson(),
-      'drop': drop.toApiJson(
-        fallbackLat: 22.9623,
-        fallbackLng: 76.0508,
-      ),
+      'drop': drop.toApiJson(),
       'category': category.trim(),
     });
     return RideVehiclesResult.fromJson(json);
@@ -93,12 +117,10 @@ class RideRepository extends BaseRepository {
     required String couponCode,
     String? vehicleType,
   }) async {
+    _requireCoordinates(pickup, drop);
     final body = <String, dynamic>{
       'pickup': pickup.toApiJson(),
-      'drop': drop.toApiJson(
-        fallbackLat: 22.7196,
-        fallbackLng: 75.8577,
-      ),
+      'drop': drop.toApiJson(),
     };
     final type = vehicleType?.trim() ?? '';
     if (type.isNotEmpty) body['vehicleType'] = type;
@@ -114,13 +136,11 @@ class RideRepository extends BaseRepository {
     required String couponCode,
     required String vehicleType,
   }) async {
+    _requireCoordinates(pickup, drop);
     final json = await apiService.postJson(ApiConstants.rideApplyCoupon, {
       'couponCode': couponCode.trim(),
       'pickup': pickup.toApiJson(),
-      'drop': drop.toApiJson(
-        fallbackLat: 22.7196,
-        fallbackLng: 75.8577,
-      ),
+      'drop': drop.toApiJson(),
       'vehicleType': vehicleType.trim(),
     });
     return RideEstimate.fromJson(json, vehicleType: vehicleType);
@@ -133,20 +153,35 @@ class RideRepository extends BaseRepository {
     String paymentMethod = 'cash',
     String couponCode = '',
   }) async {
+    _requireCoordinates(pickup, drop);
     final body = <String, dynamic>{
       'pickup': pickup.toApiJson(),
-      'drop': drop.toApiJson(
-        fallbackLat: 22.7196,
-        fallbackLng: 75.8577,
-      ),
+      'drop': drop.toApiJson(),
       'vehicleType': vehicleType.trim(),
       'paymentMethod':
           paymentMethod.trim().isEmpty ? 'cash' : paymentMethod.trim(),
     };
     final code = couponCode.trim();
     if (code.isNotEmpty) body['couponCode'] = code;
-    final json = await apiService.postJson(ApiConstants.rides, body);
-    return RideBooking.fromJson(json);
+    try {
+      final json = await apiService.postJson(ApiConstants.rides, body);
+      return RideBooking.fromJson(json);
+    } on ApiException catch (error) {
+      if (error.statusCode == 409) {
+        final data = ApiBody.asMap(error.data?['data']) ?? const {};
+        final existing =
+            (data['rideId'] ?? data['_id'] ?? '').toString().trim();
+        if (existing.isNotEmpty) {
+          throw ActiveRideExistsException(
+            error.message,
+            rideId: existing,
+            statusCode: error.statusCode,
+            data: error.data,
+          );
+        }
+      }
+      rethrow;
+    }
   }
 
   Future<List<SafetyReason>> fetchCancelReasons() async {
@@ -166,10 +201,16 @@ class RideRepository extends BaseRepository {
     String reason = '',
   }) async {
     final body = <String, dynamic>{};
-    if (reasonId.trim().isNotEmpty) {
-      body['reasonId'] = reasonId.trim();
+    final id = reasonId.trim();
+    // Offline catalog ids (e.g. "plans") are not server ids – the backend
+    // rejects them, so send the label instead (matched case-insensitively).
+    final isServerId = RegExp(r'^[a-fA-F0-9]{24}$').hasMatch(id);
+    if (isServerId) {
+      body['reasonId'] = id;
     } else if (reason.trim().isNotEmpty) {
       body['reason'] = reason.trim();
+    } else if (id.isNotEmpty) {
+      body['reasonId'] = id;
     }
     final json = await apiService.postJson(ApiConstants.rideCancel(id), body);
     return RideBooking.fromJson(json);

@@ -76,20 +76,8 @@ class RidesController extends GetxController with PageLoadingMixin {
       return;
     }
     if (booking.isLive && Get.isRegistered<HomeController>()) {
-      final home = Get.find<HomeController>();
-      home.activeRide.value = booking;
-      home.watchRide(booking.id);
-      if (booking.isSearching) {
-        Get.toNamed(
-          AppRoutes.searchingDriver,
-          preventDuplicates: false,
-        );
-        return;
-      }
-      Get.toNamed(
-        AppRoutes.bookingDetail,
-        preventDuplicates: false,
-      );
+      // Shared entry point: binds the socket once and guards double pushes.
+      Get.find<HomeController>().openLiveRide(booking);
       return;
     }
     Get.toNamed(

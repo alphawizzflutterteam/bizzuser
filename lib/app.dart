@@ -40,7 +40,7 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
     }
     SosService.refreshIfLoggedIn();
     if (Get.isRegistered<RideSocketService>()) {
-      Get.find<RideSocketService>().connect(force: true);
+      Get.find<RideSocketService>().ensureConnected();
     }
     if (Get.isRegistered<HomeController>()) {
       Get.find<HomeController>().resumeActiveRide();
