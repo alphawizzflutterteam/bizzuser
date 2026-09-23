@@ -86,44 +86,48 @@ class AddressFormView extends GetView<AddressFormController> {
                           ),
                           border: Border.all(color: AppColors.fieldBorder),
                         ),
-                        child: ListView.separated(
-                          shrinkWrap: true,
-                          physics: const NeverScrollableScrollPhysics(),
-                          itemCount: controller.suggestions.length,
-                          separatorBuilder: (_, _) => const Divider(
-                            height: 1,
-                            color: AppColors.fieldBorder,
-                          ),
-                          itemBuilder: (context, index) {
-                            final item = controller.suggestions[index];
-                            return ListTile(
-                              dense: true,
-                              leading: const Icon(
-                                Icons.location_on_outlined,
-                                color: AppColors.brandYellow,
-                              ),
-                              title: AppText(
-                                text: item.mainText.isNotEmpty
-                                    ? item.mainText
-                                    : item.description,
-                                style: AppTextStyles.body.copyWith(
-                                  fontWeight: FontWeight.w600,
-                                  fontSize: 14,
+                        // Own Material so the tiles' tap ink shows on the white box.
+                        child: Material(
+                          type: MaterialType.transparency,
+                          child: ListView.separated(
+                            shrinkWrap: true,
+                            physics: const NeverScrollableScrollPhysics(),
+                            itemCount: controller.suggestions.length,
+                            separatorBuilder: (_, _) => const Divider(
+                              height: 1,
+                              color: AppColors.fieldBorder,
+                            ),
+                            itemBuilder: (context, index) {
+                              final item = controller.suggestions[index];
+                              return ListTile(
+                                dense: true,
+                                leading: const Icon(
+                                  Icons.location_on_outlined,
+                                  color: AppColors.brandYellow,
                                 ),
-                                maxLines: 1,
-                              ),
-                              subtitle: item.secondaryText.isEmpty
-                                  ? null
-                                  : AppText(
-                                      text: item.secondaryText,
-                                      style: AppTextStyles.caption.copyWith(
-                                        color: AppColors.textSecondary,
+                                title: AppText(
+                                  text: item.mainText.isNotEmpty
+                                      ? item.mainText
+                                      : item.description,
+                                  style: AppTextStyles.body.copyWith(
+                                    fontWeight: FontWeight.w600,
+                                    fontSize: 14,
+                                  ),
+                                  maxLines: 1,
+                                ),
+                                subtitle: item.secondaryText.isEmpty
+                                    ? null
+                                    : AppText(
+                                        text: item.secondaryText,
+                                        style: AppTextStyles.caption.copyWith(
+                                          color: AppColors.textSecondary,
+                                        ),
+                                        maxLines: 2,
                                       ),
-                                      maxLines: 2,
-                                    ),
-                              onTap: () => controller.selectSuggestion(item),
-                            );
-                          },
+                                onTap: () => controller.selectSuggestion(item),
+                              );
+                            },
+                          ),
                         ),
                       );
                     }),
@@ -163,7 +167,8 @@ class AddressFormView extends GetView<AddressFormController> {
                       minLines: 2,
                       hintText: AppStrings.pickOnMap,
                       suffixIcon: Obx(
-                        () => controller.isResolvingAddress.value ||
+                        () =>
+                            controller.isResolvingAddress.value ||
                                 controller.isLocating.value
                             ? const Padding(
                                 padding: EdgeInsets.all(12),

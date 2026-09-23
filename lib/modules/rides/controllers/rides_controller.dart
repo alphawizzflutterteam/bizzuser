@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:get/get.dart';
 
 import '../../../core/routes/app_routes.dart';
@@ -21,6 +23,10 @@ class RidesController extends GetxController with PageLoadingMixin {
 
   RideBookingStatus get currentStatus => tabs[tabIndex.value];
 
+  Worker? _liveRideWorker;
+  Timer? _refreshDebounce;
+  String _liveRideKey = '';
+
   @override
   void onInit() {
     super.onInit();
@@ -29,7 +35,54 @@ class RidesController extends GetxController with PageLoadingMixin {
       stopPageLoading();
       return;
     }
+    _watchLiveRide();
     loadRides();
+  }
+
+  @override
+  void onClose() {
+    _liveRideWorker?.dispose();
+    _refreshDebounce?.cancel();
+    super.onClose();
+  }
+
+  /// The live ride moved on (searching → accepted → … → completed / cancelled
+  /// or paid): the lists it appears in are stale, so reload the open tab.
+  void _watchLiveRide() {
+    if (!Get.isRegistered<HomeController>()) return;
+    _liveRideWorker = ever<RideBooking?>(
+      Get.find<HomeController>().activeRide,
+      (ride) {
+        final key = ride == null
+            ? ''
+            : '${ride.id}|${ride.normalizedStatus}|${ride.isPaymentPending}';
+        if (key == _liveRideKey) return;
+        _liveRideKey = key;
+        _refreshDebounce?.cancel();
+        _refreshDebounce = Timer(
+          const Duration(milliseconds: 600),
+          refreshRides,
+        );
+      },
+    );
+  }
+
+  /// Reload the open tab in place (no loader or empty state flash when the
+  /// list is already showing). Used when the Rides tab is opened again.
+  Future<void> refreshRides() async {
+    if (!Get.isRegistered<RideRepository>()) return;
+    if (items.isEmpty) return loadRides();
+    final status = currentStatus;
+    try {
+      final fetched = await Get.find<RideRepository>().fetchRides(
+        status: status.name,
+      );
+      if (tabIndex.value == tabs.indexOf(status)) {
+        items.assignAll(fetched);
+      }
+    } catch (_) {
+      // Keep the current list; pull-to-refresh can retry.
+    }
   }
 
   void changeTab(int index) {
