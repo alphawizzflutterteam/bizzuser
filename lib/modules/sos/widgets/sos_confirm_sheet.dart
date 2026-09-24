@@ -12,7 +12,7 @@ class SosConfirmSheet {
 
   static Future<bool> show() async {
     final result = await Get.bottomSheet<bool>(
-      const _SosConfirmBody(),
+      const SafeArea(top: false, child: _SosConfirmBody()),
       isScrollControlled: true,
       backgroundColor: AppColors.white,
       shape: const RoundedRectangleBorder(

@@ -35,6 +35,7 @@ class AddTicketView extends GetView<AddTicketController> {
                       SignupLabeledField(
                         label: AppStrings.issueCategory,
                         controller: controller.categoryController,
+                        hintText: AppStrings.hintIssueCategory,
                         readOnly: true,
                         fillColor: AppColors.white,
                         onTap: controller.openCategoryPicker,
@@ -49,6 +50,7 @@ class AddTicketView extends GetView<AddTicketController> {
                       SignupLabeledField(
                         label: AppStrings.subject,
                         controller: controller.subjectController,
+                        hintText: AppStrings.hintSubject,
                         textCapitalization: TextCapitalization.sentences,
                         textInputAction: TextInputAction.next,
                         fillColor: AppColors.white,
@@ -57,6 +59,7 @@ class AddTicketView extends GetView<AddTicketController> {
                       SignupLabeledField(
                         label: AppStrings.description,
                         controller: controller.descriptionController,
+                        hintText: AppStrings.hintDescription,
                         textCapitalization: TextCapitalization.sentences,
                         textInputAction: TextInputAction.newline,
                         keyboardType: TextInputType.multiline,
@@ -68,6 +71,7 @@ class AddTicketView extends GetView<AddTicketController> {
                       SignupLabeledField(
                         label: AppStrings.imageUpload,
                         controller: controller.imageController,
+                        hintText: AppStrings.hintImageUpload,
                         fillColor: AppColors.white,
                         readOnly: true,
                         onTap: controller.pickImage,

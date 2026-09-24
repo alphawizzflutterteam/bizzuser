@@ -37,6 +37,7 @@ class BankDetailsView extends GetView<BankDetailsController> {
                           textCapitalization: TextCapitalization.words,
                           textInputAction: TextInputAction.next,
                           fillColor: AppColors.white,
+                          hintText: AppStrings.hintAccountHolder,
                         ),
                         const SizedBox(height: 14),
                         SignupLabeledField(
@@ -45,7 +46,7 @@ class BankDetailsView extends GetView<BankDetailsController> {
                           keyboardType: TextInputType.number,
                           textInputAction: TextInputAction.next,
                           fillColor: AppColors.white,
-                          hintText: AppStrings.fieldPlaceholder,
+                          hintText: AppStrings.hintAccountNumber,
                           prefix: const PhoneCodePrefix(),
                           inputFormatters: [
                             FilteringTextInputFormatter.digitsOnly,
@@ -59,6 +60,7 @@ class BankDetailsView extends GetView<BankDetailsController> {
                           textCapitalization: TextCapitalization.characters,
                           textInputAction: TextInputAction.next,
                           fillColor: AppColors.white,
+                          hintText: AppStrings.hintIfsc,
                         ),
                         const SizedBox(height: 14),
                         SignupLabeledField(
@@ -67,11 +69,13 @@ class BankDetailsView extends GetView<BankDetailsController> {
                           textCapitalization: TextCapitalization.words,
                           textInputAction: TextInputAction.next,
                           fillColor: AppColors.white,
+                          hintText: AppStrings.hintBankName,
                         ),
                         const SizedBox(height: 14),
                         SignupLabeledField(
                           label: AppStrings.accountType,
                           controller: controller.typeController,
+                          hintText: AppStrings.hintAccountType,
                           readOnly: true,
                           fillColor: AppColors.white,
                           onTap: controller.openAccountTypePicker,

@@ -9,6 +9,8 @@ class ReferralInvite {
     this.amount = 0,
     this.date = '',
     this.id = '',
+    this.joinedAt = '',
+    this.rewardedAt = '',
   });
 
   final String id;
@@ -16,6 +18,23 @@ class ReferralInvite {
   final String status;
   final num amount;
   final String date;
+
+  /// Local `dd MMM yyyy, hh:mm a` when the friend signed up.
+  final String joinedAt;
+
+  /// Local `dd MMM yyyy, hh:mm a` when the reward was credited (or empty).
+  final String rewardedAt;
+
+  /// History row caption: `Joined <date>` / `Rewarded <date>`.
+  String get timelineLabel {
+    if (isRewarded) {
+      final when = rewardedAt.isNotEmpty ? rewardedAt : joinedAt;
+      if (when.isNotEmpty) return '${AppStrings.rewardedLabel} $when';
+    } else if (joinedAt.isNotEmpty) {
+      return '${AppStrings.joinedLabel} $joinedAt';
+    }
+    return date.isEmpty ? statusLabel : '$statusLabel · $date';
+  }
 
   String get normalizedStatus => status.trim().toLowerCase();
 
@@ -79,10 +98,17 @@ class ReferralInvite {
       date: DateFormatUtils.walletDate(
         (json['rewardedAt'] ??
                 json['completedAt'] ??
+                json['joinedAt'] ??
                 json['createdAt'] ??
                 json['updatedAt'])
             ?.toString(),
         fallback: '',
+      ),
+      joinedAt: DateFormatUtils.dateTime(
+        (json['joinedAt'] ?? json['createdAt'])?.toString(),
+      ),
+      rewardedAt: DateFormatUtils.dateTime(
+        (json['rewardedAt'] ?? json['completedAt'])?.toString(),
       ),
     );
   }

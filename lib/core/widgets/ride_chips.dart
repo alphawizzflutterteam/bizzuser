@@ -38,6 +38,50 @@ class SosChip extends StatelessWidget {
   }
 }
 
+/// Compact outlined app-bar action, sized like [SosChip].
+class TrackChip extends StatelessWidget {
+  const TrackChip({super.key, required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        margin: const EdgeInsets.only(right: AppDimensions.paddingSmall),
+        padding: const EdgeInsets.symmetric(
+          horizontal: AppDimensions.paddingSmall + 4,
+          vertical: AppDimensions.paddingSmall - 1,
+        ),
+        decoration: BoxDecoration(
+          color: AppColors.white,
+          borderRadius: BorderRadius.circular(AppDimensions.radiusXLarge),
+          border: Border.all(color: AppColors.brandBlack),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(
+              Icons.near_me_rounded,
+              size: AppDimensions.iconSizeSmall,
+              color: AppColors.brandBlack,
+            ),
+            const SizedBox(width: 4),
+            AppText(
+              text: AppStrings.track,
+              style: AppTextStyles.label.copyWith(
+                color: AppColors.brandBlack,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class DriverAvatar extends StatelessWidget {
   const DriverAvatar({super.key, this.size, this.imageAsset, this.imageUrl});
 

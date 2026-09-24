@@ -98,6 +98,7 @@ class EmergencyContactsView extends GetView<EmergencyContactsController> {
                     controller: controller.nameController,
                     textCapitalization: TextCapitalization.words,
                     fillColor: AppColors.white,
+                    hintText: AppStrings.hintContactName,
                     validator: controller.validateName,
                   ),
                   const SizedBox(height: 12),

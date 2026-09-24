@@ -20,7 +20,7 @@ class PersonalInformationController extends GetxController
   final referralController = TextEditingController();
   final isLoading = false.obs;
 
-  String? validateName(String? value) => AppValidators.required(value);
+  String? validateName(String? value) => AppValidators.name(value);
 
   String? validatePhone(String? value) => AppValidators.phone(value);
 
@@ -65,7 +65,7 @@ class PersonalInformationController extends GetxController
       return;
     }
 
-    final name = nameController.text.trim();
+    final name = AppValidators.normalizeName(nameController.text);
     final email = emailController.text.trim();
     final current = _profile.user.value;
 

@@ -39,6 +39,10 @@ class RideBooking {
     this.paymentMethod = '',
     this.paymentStatus = '',
     this.paymentOptions = const [],
+    this.pendingPayment = false,
+    this.rated = false,
+    this.currentLat,
+    this.currentLng,
   });
 
   final String id;
@@ -72,6 +76,21 @@ class RideBooking {
   final String paymentStatus;
   final List<RidePaymentOption> paymentOptions;
 
+  /// `GET /user/rides/active` flag: completed ride whose payment is still due.
+  final bool pendingPayment;
+
+  /// Completed rides only: the rider already rated this trip.
+  final bool rated;
+
+  /// Last driver GPS sample stored on the ride (`currentLocation`).
+  final double? currentLat;
+  final double? currentLng;
+
+  bool get hasCurrentLocation =>
+      currentLat != null &&
+      currentLng != null &&
+      (currentLat != 0 || currentLng != 0);
+
   String get bookingCode => displayId.isNotEmpty ? displayId : id;
 
   String get normalizedStatus => rawStatus.trim().toLowerCase();
@@ -102,6 +121,7 @@ class RideBooking {
   bool get isPaymentPending {
     final value = paymentStatus.trim().toLowerCase();
     if (value == 'paid') return false;
+    if (pendingPayment) return true;
     if (value == 'pending' || value.isEmpty) return isCompleted;
     return false;
   }
@@ -181,6 +201,7 @@ class RideBooking {
 
   RideBooking copyWith({
     RideBookingStatus? status,
+    RideDriver? driver,
     String? statusLabel,
     String? otp,
     String? paymentMethod,
@@ -190,6 +211,7 @@ class RideBooking {
     String? rawStatus,
     double? total,
     List<RidePaymentOption>? paymentOptions,
+    bool? rated,
   }) {
     return RideBooking(
       id: id,
@@ -198,7 +220,7 @@ class RideBooking {
       pickup: pickup,
       drop: drop,
       distance: distance,
-      driver: driver,
+      driver: driver ?? this.driver,
       vehicleLabel: vehicleLabel,
       displayId: displayId,
       otp: otp ?? this.otp,
@@ -222,6 +244,10 @@ class RideBooking {
       paymentMethod: paymentMethod ?? this.paymentMethod,
       paymentStatus: paymentStatus ?? this.paymentStatus,
       paymentOptions: paymentOptions ?? this.paymentOptions,
+      pendingPayment: pendingPayment,
+      rated: rated ?? this.rated,
+      currentLat: currentLat,
+      currentLng: currentLng,
     );
   }
 
@@ -247,6 +273,7 @@ class RideBooking {
         (data['distanceLabel'] ?? data['distanceText'])?.toString().trim() ??
         '';
     final root = ApiBody.dataMap(json);
+    final current = ApiBody.asMap(data['currentLocation']) ?? {};
     final options = RidePaymentOption.listFrom(
       data['paymentOptions'] ?? root['paymentOptions'],
     );
@@ -304,6 +331,11 @@ class RideBooking {
       ),
       paymentStatus: (data['paymentStatus'] ?? '').toString().trim().toLowerCase(),
       paymentOptions: options,
+      pendingPayment:
+          data['pendingPayment'] == true || root['pendingPayment'] == true,
+      rated: data['rated'] == true || root['rated'] == true,
+      currentLat: _coordinate(current['lat']),
+      currentLng: _coordinate(current['lng']),
     );
   }
 
@@ -315,6 +347,12 @@ class RideBooking {
       return nested;
     }
     return data;
+  }
+
+  static double? _coordinate(dynamic value) {
+    if (value == null) return null;
+    if (value is num) return value.toDouble();
+    return double.tryParse(value.toString().trim());
   }
 
   static RideBookingStatus _status(String raw) {

@@ -420,7 +420,7 @@ class _CouponBanner extends GetView<HomeController> {
     return GestureDetector(
       onTap: () {
         Get.bottomSheet(
-          const CouponSheet(),
+          const SafeArea(top: false, child: CouponSheet()),
           isScrollControlled: true,
           backgroundColor: AppColors.white,
           shape: const RoundedRectangleBorder(

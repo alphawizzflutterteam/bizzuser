@@ -10,7 +10,6 @@ import '../../../core/widgets/app_card.dart';
 import '../../../core/widgets/app_text.dart';
 import '../../../core/widgets/fare_details.dart';
 import '../../../core/widgets/ride_chips.dart';
-import '../../../data/repositories/ride_catalog.dart';
 import '../../home/controllers/home_controller.dart';
 import '../widgets/payment_method_sheet.dart';
 
@@ -35,6 +34,17 @@ class _RideCompletedViewState extends State<RideCompletedView> {
   @override
   Widget build(BuildContext context) {
     final controller = Get.find<HomeController>();
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) {
+        if (didPop) return;
+        controller.leaveCompletedRide();
+      },
+      child: _buildScaffold(controller),
+    );
+  }
+
+  Widget _buildScaffold(HomeController controller) {
     return Scaffold(
       backgroundColor: AppColors.white,
       appBar: AppBar(
@@ -43,7 +53,7 @@ class _RideCompletedViewState extends State<RideCompletedView> {
           style: AppTextStyles.heading,
         ),
         leading: IconButton(
-          onPressed: Get.back,
+          onPressed: controller.leaveCompletedRide,
           icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 18),
         ),
       ),
@@ -102,7 +112,7 @@ class _RideCompletedViewState extends State<RideCompletedView> {
                               return AppText(
                                 text: driver.hasName
                                     ? driver.name
-                                    : RideCatalog.driver.name,
+                                    : AppStrings.yourDriver,
                                 style: AppTextStyles.body.copyWith(
                                   fontWeight: FontWeight.w700,
                                 ),
@@ -121,7 +131,7 @@ class _RideCompletedViewState extends State<RideCompletedView> {
                                   return AppText(
                                     text: driver.rating.isNotEmpty
                                         ? driver.rating
-                                        : RideCatalog.driver.rating,
+                                        : '–',
                                     style: AppTextStyles.caption,
                                   );
                                 }),

@@ -67,7 +67,12 @@ class AddTicketController extends GetxController with PageLoadingMixin {
     AppUtils.hideKeyboard();
     Get.bottomSheet(
       Container(
-        padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+        padding: EdgeInsets.fromLTRB(
+          20,
+          16,
+          20,
+          24 + MediaQuery.viewPaddingOf(Get.context!).bottom,
+        ),
         decoration: const BoxDecoration(
           color: AppColors.white,
           borderRadius: BorderRadius.vertical(top: Radius.circular(20)),

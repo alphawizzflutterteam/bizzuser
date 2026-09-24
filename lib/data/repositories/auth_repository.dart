@@ -190,7 +190,7 @@ class AuthRepository extends BaseRepository {
     }
     _storage.saveSession(token: session.token, user: session.user.toJson());
     if (Get.isRegistered<RideSocketService>()) {
-      Get.find<RideSocketService>().connect(force: true);
+      Get.find<RideSocketService>().ensureConnected();
     }
     return session;
   }

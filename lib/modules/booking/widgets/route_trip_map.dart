@@ -42,15 +42,26 @@ class RouteTripMap extends StatefulWidget {
 class _RouteTripMapState extends State<RouteTripMap> {
   GoogleMapController? _controller;
 
-  LatLng get _pickup => LatLng(
-        widget.pickup.lat != 0 ? widget.pickup.lat : 22.7533,
-        widget.pickup.lng != 0 ? widget.pickup.lng : 75.8937,
-      );
+  // Display-only camera fallback when a point has no coordinates: use the
+  // other end of the trip (never a fake second location).
+  static const LatLng _defaultCenter = LatLng(22.7533, 75.8937);
 
-  LatLng get _drop => LatLng(
-        widget.drop.lat != 0 ? widget.drop.lat : 22.7196,
-        widget.drop.lng != 0 ? widget.drop.lng : 75.8577,
-      );
+  LatLng get _pickup {
+    if (widget.pickup.hasCoordinates) {
+      return LatLng(widget.pickup.lat, widget.pickup.lng);
+    }
+    if (widget.drop.hasCoordinates) {
+      return LatLng(widget.drop.lat, widget.drop.lng);
+    }
+    return _defaultCenter;
+  }
+
+  LatLng get _drop {
+    if (widget.drop.hasCoordinates) {
+      return LatLng(widget.drop.lat, widget.drop.lng);
+    }
+    return _pickup;
+  }
 
   String get _distanceLabel {
     final value = widget.distance.trim();
@@ -61,14 +72,38 @@ class _RouteTripMapState extends State<RouteTripMap> {
   @override
   void didUpdateWidget(covariant RouteTripMap oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.pickup.lat != widget.pickup.lat ||
+    final routeChanged = oldWidget.pickup.lat != widget.pickup.lat ||
         oldWidget.pickup.lng != widget.pickup.lng ||
         oldWidget.drop.lat != widget.drop.lat ||
-        oldWidget.drop.lng != widget.drop.lng ||
-        oldWidget.driverLat != widget.driverLat ||
-        oldWidget.driverLng != widget.driverLng) {
+        oldWidget.drop.lng != widget.drop.lng;
+    if (routeChanged) {
       _fitBounds();
+      return;
     }
+    final driverMoved = oldWidget.driverLat != widget.driverLat ||
+        oldWidget.driverLng != widget.driverLng;
+    if (!driverMoved) return;
+    final hadDriver = oldWidget.driverLat != null &&
+        oldWidget.driverLng != null &&
+        (oldWidget.driverLat != 0 || oldWidget.driverLng != 0);
+    // Only refit when the driver first appears or leaves the visible area –
+    // re-fitting on every GPS tick makes the camera jitter.
+    if (!hadDriver) {
+      _fitBounds();
+    } else {
+      _fitIfDriverOffscreen();
+    }
+  }
+
+  Future<void> _fitIfDriverOffscreen() async {
+    final controller = _controller;
+    final driver = _driver;
+    if (controller == null || driver == null) return;
+    try {
+      final visible = await controller.getVisibleRegion();
+      if (!mounted) return;
+      if (!visible.contains(driver)) await _fitBounds();
+    } catch (_) {}
   }
 
   LatLng? get _driver {

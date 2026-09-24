@@ -9,6 +9,7 @@ import '../../../core/utils/app_utils.dart';
 import '../../../core/widgets/app_button.dart';
 import '../../../core/widgets/app_page_loader.dart';
 import '../../../core/widgets/app_text.dart';
+import '../../../data/models/location_pick_args.dart';
 import '../../../data/models/ride_location.dart';
 import '../../../data/models/vehicle_option.dart';
 import '../../home/controllers/home_controller.dart';
@@ -73,6 +74,10 @@ class _VehicleSelectSheet extends GetView<HomeController> {
               pickup: controller.pickup.value,
               drop: controller.drop.value,
               distance: controller.estimateDistance.value,
+              onEditPickup: () =>
+                  controller.editTripLocation(LocationPickTarget.pickup),
+              onEditDrop: () =>
+                  controller.editTripLocation(LocationPickTarget.drop),
             ),
           ),
           const SizedBox(height: 14),
@@ -83,9 +88,34 @@ class _VehicleSelectSheet extends GetView<HomeController> {
                 child: AppPageLoader(),
               );
             }
+            final options = controller.availableVehicles;
+            if (options.isEmpty && controller.vehiclesLoadFailed.value) {
+              return Padding(
+                padding: const EdgeInsets.symmetric(vertical: 24),
+                child: Column(
+                  children: [
+                    AppText(
+                      text: AppStrings.vehiclesLoadFailed,
+                      textAlign: TextAlign.center,
+                      style: AppTextStyles.body.copyWith(
+                        color: AppColors.textSecondary,
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    AppButton(
+                      title: AppStrings.retry,
+                      backgroundColor: AppColors.brandBlack,
+                      textColor: AppColors.white,
+                      borderRadius: AppDimensions.searchButtonRadius,
+                      onPressed: controller.retryLoadVehicles,
+                    ),
+                  ],
+                ),
+              );
+            }
             return Column(
               children: [
-                for (final option in controller.availableVehicles) ...[
+                for (final option in options) ...[
                   _VehicleOptionTile(
                     option: option,
                     selected: controller.vehicle?.id == option.id,
@@ -98,7 +128,7 @@ class _VehicleSelectSheet extends GetView<HomeController> {
                   backgroundColor: AppColors.brandBlack,
                   textColor: AppColors.white,
                   borderRadius: AppDimensions.searchButtonRadius,
-                  onPressed: controller.reviewBooking,
+                  onPressed: options.isEmpty ? null : controller.reviewBooking,
                 ),
               ],
             );
@@ -114,11 +144,37 @@ class _RouteLocationCard extends StatelessWidget {
     required this.pickup,
     required this.drop,
     this.distance = '',
+    this.onEditPickup,
+    this.onEditDrop,
   });
 
   final RideLocation pickup;
   final RideLocation drop;
   final String distance;
+  final VoidCallback? onEditPickup;
+  final VoidCallback? onEditDrop;
+
+  Widget _editable({required Widget child, VoidCallback? onTap}) {
+    if (onTap == null) return child;
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: onTap,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(child: child),
+          const Padding(
+            padding: EdgeInsets.only(left: 8, top: 2),
+            child: Icon(
+              Icons.edit_outlined,
+              color: AppColors.textSecondary,
+              size: 18,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -152,9 +208,12 @@ class _RouteLocationCard extends StatelessWidget {
               ),
               const SizedBox(width: 8),
               Expanded(
-                child: _LabeledPlace(
-                  label: AppStrings.pickupLocation,
-                  value: pickup.routeLine,
+                child: _editable(
+                  onTap: onEditPickup,
+                  child: _LabeledPlace(
+                    label: AppStrings.pickupLocation,
+                    value: pickup.routeLine,
+                  ),
                 ),
               ),
               if (distance.trim().isNotEmpty)
@@ -181,9 +240,12 @@ class _RouteLocationCard extends StatelessWidget {
               ),
               const SizedBox(width: 8),
               Expanded(
-                child: _LabeledPlace(
-                  label: AppStrings.dropLocation,
-                  value: drop.routeLine,
+                child: _editable(
+                  onTap: onEditDrop,
+                  child: _LabeledPlace(
+                    label: AppStrings.dropLocation,
+                    value: drop.routeLine,
+                  ),
                 ),
               ),
             ],

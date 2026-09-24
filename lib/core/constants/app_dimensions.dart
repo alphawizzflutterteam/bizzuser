@@ -14,7 +14,7 @@ class AppDimensions {
 
   static const double buttonHeight = 52;
   static const double textFieldHeight = 52;
-  static const double loginLogoWidth = 210;
+  static const double loginLogoWidth = 96;
   static const double checkboxSize = 20;
   static const double loginHorizontalPadding = 24;
   static const double otpBoxSize = 68;

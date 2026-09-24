@@ -5,8 +5,9 @@ class AppAssets {
   static const String iconsPath = 'assets/icons';
   static const String fontsPath = 'assets/fonts';
 
-  static const String logo = '$imagesPath/splashlogo.png';
-  static const String splashBackground = '$imagesPath/splashbg.png';
+  /// Brand logo (gold "BIZZ CAB" mark on a black rounded square).
+  static const String logo = '$imagesPath/bizzcab_logo.png';
+  static const String splashCityNight = '$imagesPath/splash_city_night.jpg';
   static const String loginBackground = '$imagesPath/loginbg.png';
   static const String homeMap = '$imagesPath/home_map.png';
   static const String routeMap = '$imagesPath/route_map.png';

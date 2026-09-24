@@ -49,6 +49,21 @@ class AddressFormView extends GetView<AddressFormController> {
                         Icons.search_rounded,
                         color: AppColors.tabInactive,
                       ),
+                      suffixIcon: ValueListenableBuilder<TextEditingValue>(
+                        valueListenable: controller.searchController,
+                        builder: (context, value, _) {
+                          if (value.text.isEmpty) {
+                            return const SizedBox.shrink();
+                          }
+                          return IconButton(
+                            onPressed: controller.clearSearch,
+                            icon: const Icon(
+                              Icons.close_rounded,
+                              color: AppColors.tabInactive,
+                            ),
+                          );
+                        },
+                      ),
                       onChanged: controller.onSearchChanged,
                     ),
                     Obx(() {
@@ -71,44 +86,48 @@ class AddressFormView extends GetView<AddressFormController> {
                           ),
                           border: Border.all(color: AppColors.fieldBorder),
                         ),
-                        child: ListView.separated(
-                          shrinkWrap: true,
-                          physics: const NeverScrollableScrollPhysics(),
-                          itemCount: controller.suggestions.length,
-                          separatorBuilder: (_, _) => const Divider(
-                            height: 1,
-                            color: AppColors.fieldBorder,
-                          ),
-                          itemBuilder: (context, index) {
-                            final item = controller.suggestions[index];
-                            return ListTile(
-                              dense: true,
-                              leading: const Icon(
-                                Icons.location_on_outlined,
-                                color: AppColors.brandYellow,
-                              ),
-                              title: AppText(
-                                text: item.mainText.isNotEmpty
-                                    ? item.mainText
-                                    : item.description,
-                                style: AppTextStyles.body.copyWith(
-                                  fontWeight: FontWeight.w600,
-                                  fontSize: 14,
+                        // Own Material so the tiles' tap ink shows on the white box.
+                        child: Material(
+                          type: MaterialType.transparency,
+                          child: ListView.separated(
+                            shrinkWrap: true,
+                            physics: const NeverScrollableScrollPhysics(),
+                            itemCount: controller.suggestions.length,
+                            separatorBuilder: (_, _) => const Divider(
+                              height: 1,
+                              color: AppColors.fieldBorder,
+                            ),
+                            itemBuilder: (context, index) {
+                              final item = controller.suggestions[index];
+                              return ListTile(
+                                dense: true,
+                                leading: const Icon(
+                                  Icons.location_on_outlined,
+                                  color: AppColors.brandYellow,
                                 ),
-                                maxLines: 1,
-                              ),
-                              subtitle: item.secondaryText.isEmpty
-                                  ? null
-                                  : AppText(
-                                      text: item.secondaryText,
-                                      style: AppTextStyles.caption.copyWith(
-                                        color: AppColors.textSecondary,
+                                title: AppText(
+                                  text: item.mainText.isNotEmpty
+                                      ? item.mainText
+                                      : item.description,
+                                  style: AppTextStyles.body.copyWith(
+                                    fontWeight: FontWeight.w600,
+                                    fontSize: 14,
+                                  ),
+                                  maxLines: 1,
+                                ),
+                                subtitle: item.secondaryText.isEmpty
+                                    ? null
+                                    : AppText(
+                                        text: item.secondaryText,
+                                        style: AppTextStyles.caption.copyWith(
+                                          color: AppColors.textSecondary,
+                                        ),
+                                        maxLines: 2,
                                       ),
-                                      maxLines: 2,
-                                    ),
-                              onTap: () => controller.selectSuggestion(item),
-                            );
-                          },
+                                onTap: () => controller.selectSuggestion(item),
+                              );
+                            },
+                          ),
                         ),
                       );
                     }),
@@ -117,6 +136,7 @@ class AddressFormView extends GetView<AddressFormController> {
                       SignupLabeledField(
                         label: AppStrings.addressLabel,
                         controller: controller.labelController,
+                        hintText: AppStrings.hintAddressLabel,
                         readOnly: true,
                         fillColor: AppColors.white,
                         onTap: controller.openLabelPicker,
@@ -131,6 +151,7 @@ class AddressFormView extends GetView<AddressFormController> {
                       SignupLabeledField(
                         label: AppStrings.addressName,
                         controller: controller.nameController,
+                        hintText: AppStrings.hintAddressName,
                         textCapitalization: TextCapitalization.words,
                         textInputAction: TextInputAction.next,
                         fillColor: AppColors.white,
@@ -146,7 +167,9 @@ class AddressFormView extends GetView<AddressFormController> {
                       minLines: 2,
                       hintText: AppStrings.pickOnMap,
                       suffixIcon: Obx(
-                        () => controller.isResolvingAddress.value
+                        () =>
+                            controller.isResolvingAddress.value ||
+                                controller.isLocating.value
                             ? const Padding(
                                 padding: EdgeInsets.all(12),
                                 child: SizedBox(
@@ -158,9 +181,12 @@ class AddressFormView extends GetView<AddressFormController> {
                                   ),
                                 ),
                               )
-                            : const Icon(
-                                Icons.my_location_rounded,
-                                color: AppColors.brandYellow,
+                            : IconButton(
+                                onPressed: controller.useCurrentLocation,
+                                icon: const Icon(
+                                  Icons.my_location_rounded,
+                                  color: AppColors.brandYellow,
+                                ),
                               ),
                       ),
                     ),
@@ -169,6 +195,8 @@ class AddressFormView extends GetView<AddressFormController> {
                       () => AppButton(
                         title: controller.saveButtonTitle,
                         isLoading: controller.isLoading.value,
+                        // Pick mode: disabled until a place is selected.
+                        enabled: controller.canConfirm,
                         backgroundColor: AppColors.brandBlack,
                         textColor: AppColors.white,
                         borderRadius: 28,

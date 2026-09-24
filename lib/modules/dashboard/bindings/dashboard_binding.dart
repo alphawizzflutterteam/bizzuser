@@ -13,8 +13,13 @@ class DashboardBinding extends Bindings {
     if (!Get.isRegistered<DashboardController>()) {
       Get.lazyPut<DashboardController>(DashboardController.new, fenix: true);
     }
+    // Permanent: it holds the booking + live-ride state for the whole session.
+    // With lazyPut/fenix, Get.offAllNamed(home) deleted the instance the new
+    // home page was using and silently created a second one, so picked
+    // pickup/drop locations landed on a different controller than the UI.
+    // Deleted explicitly on logout (ProfileController._endSession).
     if (!Get.isRegistered<HomeController>()) {
-      Get.lazyPut<HomeController>(HomeController.new, fenix: true);
+      Get.put<HomeController>(HomeController(), permanent: true);
     }
     if (!Get.isRegistered<RidesController>()) {
       Get.lazyPut<RidesController>(RidesController.new, fenix: true);

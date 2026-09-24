@@ -34,7 +34,7 @@ class RideChatView extends GetView<RideChatController> {
               const SizedBox(width: AppDimensions.paddingSmall),
               Expanded(
                 child: AppText(
-                  text: driver.hasName ? driver.name : AppStrings.driverName,
+                  text: driver.hasName ? driver.name : AppStrings.yourDriver,
                   style: AppTextStyles.heading,
                   maxLines: 1,
                 ),
@@ -190,11 +190,22 @@ class _ChatBubble extends StatelessWidget {
                 color: mine ? AppColors.chatMine : AppColors.brandBlack,
                 borderRadius: BorderRadius.circular(AppDimensions.radiusLarge),
               ),
-              child: AppText(
-                text: message.text,
-                style: AppTextStyles.bodySmall.copyWith(
-                  color: mine ? AppColors.brandBlack : AppColors.white,
-                ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (message.hasAttachment)
+                    _ChatPhoto(url: message.attachmentUrl, mine: mine),
+                  if (message.hasAttachment && message.text.isNotEmpty)
+                    const SizedBox(height: AppDimensions.paddingSmall),
+                  if (message.text.isNotEmpty)
+                    AppText(
+                      text: message.text,
+                      style: AppTextStyles.bodySmall.copyWith(
+                        color: mine ? AppColors.brandBlack : AppColors.white,
+                      ),
+                    ),
+                ],
               ),
             ),
             const SizedBox(height: AppDimensions.paddingXSmall),
@@ -203,6 +214,90 @@ class _ChatBubble extends StatelessWidget {
               style: AppTextStyles.caption.copyWith(color: AppColors.textHint),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Photo sent in chat; tap opens it full screen (pinch to zoom).
+class _ChatPhoto extends StatelessWidget {
+  const _ChatPhoto({required this.url, required this.mine});
+
+  final String url;
+  final bool mine;
+
+  @override
+  Widget build(BuildContext context) {
+    final iconColor = mine ? AppColors.brandBlack : AppColors.white;
+    return GestureDetector(
+      onTap: () => Get.to<void>(
+        () => _PhotoPreview(url: url),
+        fullscreenDialog: true,
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(AppDimensions.radiusMedium),
+        child: Image.network(
+          url,
+          width: 220,
+          fit: BoxFit.cover,
+          loadingBuilder: (context, child, progress) {
+            if (progress == null) return child;
+            return SizedBox(
+              width: 220,
+              height: 160,
+              child: Center(
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: iconColor,
+                ),
+              ),
+            );
+          },
+          errorBuilder: (_, _, _) => SizedBox(
+            width: 220,
+            height: 120,
+            child: Icon(Icons.broken_image_outlined, color: iconColor),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _PhotoPreview extends StatelessWidget {
+  const _PhotoPreview({required this.url});
+
+  final String url;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        backgroundColor: Colors.black,
+        foregroundColor: Colors.white,
+        elevation: 0,
+      ),
+      body: SafeArea(
+        child: Center(
+          child: InteractiveViewer(
+            minScale: 1,
+            maxScale: 4,
+            child: Image.network(
+              url,
+              fit: BoxFit.contain,
+              loadingBuilder: (context, child, progress) {
+                if (progress == null) return child;
+                return const CircularProgressIndicator(color: Colors.white);
+              },
+              errorBuilder: (_, _, _) => const Icon(
+                Icons.broken_image_outlined,
+                color: Colors.white70,
+                size: 48,
+              ),
+            ),
+          ),
         ),
       ),
     );

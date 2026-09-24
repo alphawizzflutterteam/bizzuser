@@ -155,6 +155,10 @@ class PushNotificationService extends GetxService {
   }
 
   Future<void> _onForeground(RemoteMessage message) async {
+    // Chat in an open app comes over the socket (RideSocketService shows it);
+    // the push is only for a backgrounded / closed app.
+    final type = message.data['type']?.toString().trim().toLowerCase() ?? '';
+    if (type == 'chat') return;
     await showLocalFromRemote(message);
     if (Get.isRegistered<HomeController>()) {
       await Get.find<HomeController>().refreshUnreadCount();
@@ -211,6 +215,36 @@ class PushNotificationService extends GetxService {
     );
   }
 
+  /// New chat message while the app is open but the rider isn't on the chat.
+  static Future<void> showChat({
+    required String title,
+    required String body,
+    required String rideId,
+  }) async {
+    if (!_localReady) return;
+    await _local.show(
+      rideId.hashCode & 0x7fffffff,
+      title,
+      body,
+      const NotificationDetails(
+        android: AndroidNotificationDetails(
+          _channelId,
+          _channelName,
+          channelDescription: _channelDesc,
+          importance: Importance.high,
+          priority: Priority.high,
+          playSound: true,
+        ),
+        iOS: DarwinNotificationDetails(
+          presentAlert: true,
+          presentBadge: true,
+          presentSound: true,
+        ),
+      ),
+      payload: jsonEncode({'type': 'chat', 'rideId': rideId}),
+    );
+  }
+
   static Map<String, dynamic> _payloadOf(RemoteMessage message) {
     return {
       ...message.data,
@@ -253,9 +287,24 @@ class PushNotificationService extends GetxService {
       return;
     }
 
+    if (type == 'chat' && rideId.isNotEmpty) {
+      if (Get.isRegistered<HomeController>()) {
+        Get.find<HomeController>().openChatForRide(rideId);
+      }
+      return;
+    }
+
     if (type == 'booking' || rideId.isNotEmpty) {
       if (rideId.isNotEmpty) {
-        Get.toNamed(AppRoutes.bookingDetail, arguments: rideId);
+        // Load the real ride (live → live screens, finished → detail page)
+        // instead of opening Booking Detail with placeholder driver data.
+        if (Get.isRegistered<HomeController>()) {
+          Get.find<HomeController>().openRideById(rideId);
+          return;
+        }
+        if (Get.currentRoute != AppRoutes.home) {
+          Get.offAllNamed(AppRoutes.home);
+        }
         return;
       }
       if (Get.currentRoute != AppRoutes.home) {

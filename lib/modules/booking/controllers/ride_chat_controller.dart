@@ -1,9 +1,13 @@
+import 'dart:async';
+import 'dart:math';
+
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 
 import '../../../core/constants/app_strings.dart';
 import '../../../core/utils/app_utils.dart';
 import '../../../core/utils/page_loading_mixin.dart';
+import '../../../core/utils/phone_call.dart';
 import '../../../core/utils/run_api.dart';
 import '../../../data/models/chat_message.dart';
 import '../../../data/models/ride_booking.dart';
@@ -31,7 +35,19 @@ class RideChatController extends GetxController with PageLoadingMixin {
     return '';
   }
 
-  RideDriver get driver => ride.value?.driver ?? RideCatalog.driver;
+  static final Random _random = Random();
+
+  RideDriver get driver =>
+      ride.value?.driver ??
+      const RideDriver(name: '', rating: '', phone: '', vehicleNumber: '');
+
+  /// One id per outgoing message, shared by the socket send and the REST
+  /// fallback so the server stores it only once.
+  static String _newClientId() {
+    final now = DateTime.now().microsecondsSinceEpoch.toRadixString(36);
+    final salt = _random.nextInt(1 << 32).toRadixString(36);
+    return 'u-$now-$salt';
+  }
 
   @override
   void onInit() {
@@ -54,19 +70,35 @@ class RideChatController extends GetxController with PageLoadingMixin {
   void _listenSocket() {
     if (!Get.isRegistered<RideSocketService>()) return;
     _chatWorker = ever(Get.find<RideSocketService>().incomingChat, (message) {
-      if (message == null || message.text.isEmpty) return;
+      if (message == null || message.isEmpty) return;
       final currentRideId = rideId;
       if (message.rideId.isNotEmpty &&
           currentRideId.isNotEmpty &&
           message.rideId != currentRideId) {
         return;
       }
-      final exists = messages.any(
-        (item) => item.id.isNotEmpty && item.id == message.id,
-      );
-      if (exists) return;
-      messages.add(message);
+      _addUnique(message);
     });
+  }
+
+  /// Adds [message] unless a message with the same `_id` is already shown
+  /// (socket echo of our own send, REST + socket, reconnect replays).
+  void _addUnique(ChatMessage message) {
+    if (message.isEmpty) return;
+    final id = message.id.trim();
+    if (id.isNotEmpty && messages.any((item) => item.id == id)) return;
+    messages.add(message);
+  }
+
+  List<ChatMessage> _dedupe(List<ChatMessage> items) {
+    final seen = <String>{};
+    final out = <ChatMessage>[];
+    for (final item in items) {
+      final id = item.id.trim();
+      if (id.isNotEmpty && !seen.add(id)) continue;
+      out.add(item);
+    }
+    return out;
   }
 
   Future<void> loadMessages() async {
@@ -76,9 +108,9 @@ class RideChatController extends GetxController with PageLoadingMixin {
       return;
     }
     await runPageLoad(() async {
-      messages.assignAll(
-        await Get.find<RideRepository>().fetchMessages(rideId),
-      );
+      final fetched = await Get.find<RideRepository>().fetchMessages(rideId);
+      // Keep socket messages that arrived while the request was in flight.
+      messages.assignAll(_dedupe([...fetched, ...messages]));
     });
   }
 
@@ -93,26 +125,37 @@ class RideChatController extends GetxController with PageLoadingMixin {
       messageController.clear();
       return;
     }
+    final id = rideId;
+    final clientId = _newClientId();
     try {
       isSending.value = true;
-      final result = await runApi(
-        () => Get.find<RideRepository>().sendMessage(
-          rideId: rideId,
+      // Socket first (with ack). REST only when the ack fails / times out,
+      // so a message is never sent twice.
+      ChatMessage? sent;
+      if (Get.isRegistered<RideSocketService>()) {
+        sent = await Get.find<RideSocketService>().sendChat(
+          rideId: id,
           text: text,
+          clientId: clientId,
+        );
+      }
+      sent ??= await runApi(
+        () => Get.find<RideRepository>().sendMessage(
+          rideId: id,
+          text: text,
+          clientId: clientId,
         ),
       );
-      if (result == null) return;
-      if (Get.isRegistered<RideSocketService>()) {
-        Get.find<RideSocketService>().sendChat(rideId: rideId, text: text);
-      }
-      if (result.text.isEmpty) {
-        messages.assignAll(
-          await Get.find<RideRepository>().fetchMessages(rideId),
-        );
-      } else {
-        messages.add(result);
-      }
+      if (sent == null) return;
       messageController.clear();
+      if (sent.text.isEmpty) {
+        final fetched = await Get.find<RideRepository>().fetchMessages(id);
+        messages.assignAll(_dedupe(fetched));
+      } else {
+        _addUnique(sent);
+      }
+    } catch (_) {
+      // fetchMessages failure after a successful send – message is saved.
     } finally {
       isSending.value = false;
     }
@@ -120,17 +163,14 @@ class RideChatController extends GetxController with PageLoadingMixin {
 
   void callDriver() {
     final phone = driver.phone.trim();
-    if (phone.isNotEmpty) {
-      AppUtils.showInfo('${AppStrings.callingDriver} $phone');
-      return;
+    if (phone.isEmpty && Get.isRegistered<HomeController>()) {
+      final home = Get.find<HomeController>();
+      if (home.activeRideId.isNotEmpty && home.activeRideId == rideId) {
+        home.callDriver();
+        return;
+      }
     }
-    if (Get.isRegistered<HomeController>()) {
-      Get.find<HomeController>().callDriver();
-      return;
-    }
-    AppUtils.showInfo(
-      '${AppStrings.callingDriver} ${RideCatalog.driver.phone}',
-    );
+    unawaited(launchDialer(phone));
   }
 
   @override

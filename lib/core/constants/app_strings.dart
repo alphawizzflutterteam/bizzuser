@@ -423,6 +423,8 @@ class AppStrings {
   static const String callingDriver = 'Calling driver';
   static const String typeHere = 'Type here...';
   static const String newMessage = 'New message';
+  static const String newMessageFromDriver = 'New message from your driver';
+  static const String chatPhoto = 'Sent a photo';
   static const String chatDate = 'Today, Nov 13';
   static const String chatTime = '11:42 AM';
   static const String chatIncomingOne =
@@ -461,4 +463,95 @@ class AppStrings {
   static const String unsafeDriving = 'Unsafe Driving';
   static const String safetyConcerns = 'Safety concerns';
   static const String otherReason = 'Other reason';
+
+  // Ride flow
+  static const String selectPickupLocation = 'Please select pickup location';
+  static const String waitingForPickupLocation =
+      'Fetching your current location. Please wait or pick a pickup point.';
+  static const String cancelSearch = 'Cancel search';
+  static const String cancelSearchTitle = 'Cancel ride search?';
+  static const String cancelSearchBody =
+      'We are still looking for a driver. Do you want to cancel this booking?';
+  static const String keepSearching = 'Keep searching';
+  static const String yesCancel = 'Yes, cancel';
+  static const String searchCancelledReason = 'Cancelled while searching';
+  static const String noDriversAvailableTitle = 'No drivers available';
+  static const String noDriversAvailableBody =
+      'All drivers nearby are busy right now. Please try again in a moment.';
+  static const String tryAgain = 'Try again';
+  static const String backToHome = 'Back to home';
+  static const String vehiclesLoadFailed =
+      'Could not load vehicles for this route.';
+  static const String resumingActiveRide =
+      'You already have an active ride. Resuming it.';
+  static const String loadingRide = 'Loading ride...';
+  static String searchingProgress({
+    double? radiusKm,
+    int? driversNotified,
+  }) {
+    final km = radiusKm == null
+        ? ''
+        : (radiusKm % 1 == 0
+            ? radiusKm.toStringAsFixed(0)
+            : radiusKm.toStringAsFixed(1));
+    final base = km.isEmpty
+        ? 'Looking for drivers nearby…'
+        : 'Looking for drivers within $km km…';
+    if (driversNotified == null || driversNotified <= 0) return base;
+    final label = driversNotified == 1 ? 'driver' : 'drivers';
+    return '$base $driversNotified $label notified';
+  }
+
+  // Live ride: track / call
+  static const String track = 'Track';
+  static const String driverLocationUnavailable =
+      'Driver location not available yet, showing pickup';
+  static const String unableToOpenMaps = 'Could not open Google Maps';
+  static const String yourDriver = 'Your driver';
+  static const String driverPhoneUnavailable = 'Driver phone not available';
+  static const String unableToStartCall = 'Could not start the call';
+
+  // Location picker
+  static const String selectLocationFromList = 'Select a location from the list';
+  static const String currentLocationUnavailable =
+      'Could not get your current location';
+  static const String placeDetailsFailed =
+      'Could not load this place. Please try another one.';
+
+  // Rating
+  static const String alreadyRated = 'You have already rated this ride';
+
+  // Notifications
+  static const String markAllRead = 'Mark all read';
+
+  // Referral
+  static const String joinedLabel = 'Joined';
+  static const String rewardedLabel = 'Rewarded';
+  static const String earnLabel = 'Earn';
+
+  // Field hints
+  static const String hintFullName = 'Enter your full name';
+  static const String hintEmail = 'Enter your email address';
+  static const String hintPhone = 'Enter 10-digit mobile number';
+  static const String hintReferralCode = 'Enter referral code (optional)';
+  static const String hintAccountHolder = 'Enter account holder name';
+  static const String hintAccountNumber = 'Enter account number';
+  static const String hintIfsc = 'Enter IFSC code';
+  static const String hintBankName = 'Enter bank name';
+  static const String hintAccountType = 'Select account type';
+  static const String hintContactName = 'Enter contact name';
+  static const String hintIssueCategory = 'Select issue category';
+  static const String hintSubject = 'Enter subject';
+  static const String hintDescription = 'Describe your issue';
+  static const String hintImageUpload = 'Tap to attach an image';
+  static const String hintAddressLabel = 'Select label';
+  static const String hintAddressName = 'e.g. Home, Office';
+
+  // Name validation
+  static const String nameLength = 'Name must be 3–30 characters';
+  static const String nameCharacters =
+      "Name can contain letters, spaces, and . ' - only";
+
+  // Profile
+  static const String addEmail = 'Add email';
 }

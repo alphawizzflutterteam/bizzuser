@@ -73,7 +73,7 @@ class SplashController extends GetxController {
     if (loggedIn) {
       SosService.refreshIfLoggedIn();
       if (Get.isRegistered<RideSocketService>()) {
-        Get.find<RideSocketService>().connect(force: true);
+        Get.find<RideSocketService>().ensureConnected();
       }
       if (Get.isRegistered<FcmService>()) {
         Get.find<FcmService>().syncToken();
